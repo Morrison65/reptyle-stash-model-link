@@ -1,0 +1,29 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+# Reptyle Stash Model Link
+
+Tampermonkey userscript for desktop Chrome that links Reptyle model pages to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Independent of the other userscripts in the docker-stuff workspace; it is set up like `colum-manager` (one dependency-free userscript, no build step).
+
+@AGENTS.md
+
+## Project map
+
+- `reptyle-stash-model-link.user.js` is the installable userscript, written in the original ES5 `var` style. The pure helpers (`normUrl`, `normTitle`, `normName`, `extractMovieId`, `extractModelId`) are exported through the `module.exports` guard for tests; everything else needs the page.
+- `markModelCards` carries a documented `eslint-disable-next-line no-loop-func`: its handlers read the shared performer cache at click time on purpose.
+- `test/core.test.cjs` is the only test file (Node's built-in runner). `tools/` holds the two lint entry points copied from `colum-manager`; both read `<package name>.user.js`.
+
+## Validation
+
+- `npm run check` = `lint` + `test`. `lint` runs the Tampermonkey 5.5.1 ESLint worker from the Windows Chrome profile and fails if that extension version is not installed; it also asserts `@version` equals the runtime `VERSION`.
+- `npm run check:ci` = `lint:ci` + `test` (needs `npm ci --prefix tools/lint-ci` once). `.github/workflows/ci.yml` runs it.
+- Single test file: `node --test test/core.test.cjs`.
+- Releasing: bump `@version`, `VERSION` and `package.json` together (currently 7.0.0), then follow AGENTS.md.
+
+## Architecture
+
+- One IIFE; Reptyle is a single-page app, so the script matches the whole site and acts on the current path. Keep page changes idempotent and never rely on a load event per page.
+- Network access is only through `GM_xmlhttpRequest` and the matching `@connect` entries; `siderRuntime` (the runtime the code was originally written for) must not come back.
+- Never store session tokens, `?r=` parameters, cookies, HAR data or signed URLs in this repository.
+- Running it for real needs Tampermonkey in desktop Chrome, a logged-in Reptyle session and, except for the downloader, a running local Stash; none of that is available to the tests.
