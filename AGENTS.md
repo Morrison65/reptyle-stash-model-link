@@ -9,7 +9,7 @@ The user requires every finished userscript version to be committed, and every c
 - Include the version in the commit subject.
 - Inspect the current branch and upstream, then perform a normal push after each completed commit. Never force-push. No further confirmation is needed.
 - If authentication, upstream configuration or a non-fast-forward rejection blocks the push, preserve the local commit and report the actual blocker.
-- Report version, commit, push outcome and validation limits. The unit tests cover the pure helpers only; nothing here verifies an authenticated Tampermonkey install or the live Reptyle/Stash pages.
+- Report version, commit, push outcome and validation limits. The unit tests cover the pure helpers; `npm run test:browser` covers each adapter on stub pages. Nothing here verifies an authenticated Tampermonkey install or the live sites/Stash.
 
 # Tampermonkey rules
 

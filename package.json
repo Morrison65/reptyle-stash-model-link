@@ -6,8 +6,9 @@
   "scripts": {
     "lint": "node tools/lint-tampermonkey.cjs",
     "test": "node --test test/core.test.cjs",
+    "test:browser": "node test/browser.cjs",
     "version-bump": "node tools/check-version-bump.cjs",
-    "check": "npm run lint && npm test && npm run version-bump",
+    "check": "npm run lint && npm test && npm run test:browser && npm run version-bump",
     "lint:ci": "node tools/lint-ci.cjs",
     "check:ci": "npm run lint:ci && npm test && npm run version-bump"
   }
