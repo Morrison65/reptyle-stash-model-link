@@ -28,6 +28,11 @@ test('every GM API used is granted and every grant is used', () => {
 
 const { SITES, siteFor, normUrl, normTitle, normName, extractMovieId, extractModelId } = require('../reptyle-stash-model-link.user.js');
 
+test('updates come from the raw file on master', () => {
+    const raw = 'https://raw.githubusercontent.com/Morrison65/' + pkg.name + '/master/' + pkg.name + '.user.js';
+    assert.deepEqual(meta.updateURL, [raw]);
+    assert.deepEqual(meta.downloadURL, [raw]);
+});
 test('every adapter host has a whole-site @match and Stash is the only connect', () => {
     const hosts = SITES.flatMap(s => s.hosts);
     assert.deepEqual([...meta.match].sort(), hosts.map(h => 'https://' + h + '/*').sort());

@@ -20,7 +20,7 @@ Tampermonkey userscript for desktop Chrome that links model pages of supported s
 - `npm run check` = `lint` + `test`. `lint` runs the Tampermonkey 5.5.1 ESLint worker from the Windows Chrome profile and fails if that extension version is not installed; it also asserts `@version` equals the runtime `VERSION`.
 - `npm run check:ci` = `lint:ci` + `test` (needs `npm ci --prefix tools/lint-ci` once). `.github/workflows/ci.yml` runs it.
 - Single test file: `node --test test/core.test.cjs`.
-- Releasing: bump `@version`, `VERSION` and `package.json` together (currently 8.0.0), then follow AGENTS.md. Keep `@name`/`@namespace` unchanged so Tampermonkey updates the installed script instead of adding a second one.
+- Releasing: bump `@version`, `VERSION` and `package.json` together (currently 8.0.1), then follow AGENTS.md. Installed copies auto-update from the raw file on `master` (`@updateURL`/`@downloadURL`, asserted by a test), so every push that changes the script must raise `@version`, and a broken push reaches every install. Keep `@name`/`@namespace` unchanged so Tampermonkey updates the installed script instead of adding a second one.
 
 ## Architecture
 

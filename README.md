@@ -1,6 +1,6 @@
 # reptyle-stash-model-link
 
-Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.0.0**. Supported so far: Reptyle (`app.reptyle.com`); more sites follow as adapters.
+Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.0.1**. Supported so far: Reptyle (`app.reptyle.com`); more sites follow as adapters.
 
 **v8.0.0** splits the script into a generic core and one adapter per site (the `SITES` array at the top of the script). The Reptyle adapter carries exactly the v7 selectors, so Reptyle behaves as before, with three deliberate changes: both add-URL buttons now ask for confirmation before writing to Stash; performers also match by alias; and the Stash scene lookup pages through all scenes of the site instead of stopping at 500. The `@name` and `@namespace` stay the same so Tampermonkey updates the installed v7 script in place.
 
@@ -11,10 +11,14 @@ Original v7 behavior: also mark in-Stash video titles green with a checkmark.
 ## Install
 
 1. In Chrome/Edge, turn on **Allow User Scripts** for Tampermonkey (extension details → right-click the icon → Manage extension), otherwise no userscript runs.
-2. Open Tampermonkey's dashboard → **Utilities → Import from file** and select [`reptyle-stash-model-link.user.js`](reptyle-stash-model-link.user.js). Alternatively create a new script and replace its contents with this file, including the metadata header.
+2. Open the [raw userscript on `master`](https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js); Tampermonkey shows its install page, click **Install** (or **Update** over an earlier version).
 3. Reload the Reptyle tab. When Tampermonkey asks about cross-origin requests, review the `@connect` entries below and choose **Always allow**.
 
 Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*` (top frame only).
+
+## Updates
+
+Since **v8.0.1** the script carries `@updateURL`/`@downloadURL` pointing at the raw file on `master`. Tampermonkey checks that URL on its update interval (default daily; **Utilities → Check for userscript updates** or the script's *Last updated* column forces it) and installs a pushed version when its `@version` is higher. A push without a version bump is not picked up. A copy imported from a file before v8.0.1 has no update URL; install it once from the link above.
 
 ## What it does
 

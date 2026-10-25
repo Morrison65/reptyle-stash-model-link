@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         Reptyle Stash Model Link
 // @namespace    local.reptyle-stash-model-link
-// @version      8.0.0
+// @version      8.0.1
 // @description  Shows the Stash performer match on model pages of supported sites (one adapter per site, Reptyle first), with an add-URL button and Stash link, and marks models and videos already in Stash on listings.
 // @match        https://app.reptyle.com/*
+// @updateURL    https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js
+// @downloadURL  https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
 // @connect      localhost
@@ -14,7 +16,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '8.0.0';
+  const VERSION = '8.0.1';
   // One adapter per site or network: everything page-specific lives here, the core below is generic.
   // hosts: page hosts the adapter runs on (each needs an @match). detail/listing: model page paths.
   // sceneHosts: hosts whose URLs Stash stores for this site's scenes; sceneKey/modelKey reduce a URL to the id both sides share.
