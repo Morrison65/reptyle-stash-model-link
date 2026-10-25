@@ -26,11 +26,34 @@ test('every GM API used is granted and every grant is used', () => {
     for (const api of meta.grant) assert.match(code, new RegExp('\\b' + api + '\\b'), api + ' is granted but unused');
 });
 
-const { normUrl, normTitle, normName, extractMovieId, extractModelId } = require('../reptyle-stash-model-link.user.js');
+const { SITES, siteFor, normUrl, normTitle, normName, extractMovieId, extractModelId } = require('../reptyle-stash-model-link.user.js');
 
-test('match covers the whole SPA and Stash is the only connect', () => {
-    assert.deepEqual(meta.match, ['https://app.reptyle.com/*']);
+test('every adapter host has a whole-site @match and Stash is the only connect', () => {
+    const hosts = SITES.flatMap(s => s.hosts);
+    assert.deepEqual([...meta.match].sort(), hosts.map(h => 'https://' + h + '/*').sort());
     assert.deepEqual(meta.connect, ['localhost']);
+});
+test('adapters are complete and ids are unique', () => {
+    const fields = ['id', 'hosts', 'detail', 'listing', 'headingSel', 'anchorSel', 'headingFallbackSel', 'titleSep', 'videoCardSel', 'videoLinkSel', 'modelLinkSel', 'modelCardSel', 'modelEntrySel', 'modelNameSel', 'sceneHosts', 'sceneKey', 'modelKey', 'modelUrl'];
+    for (const s of SITES) for (const f of fields) assert.ok(s[f], s.id + ' lacks ' + f);
+    assert.equal(new Set(SITES.map(s => s.id)).size, SITES.length);
+});
+test('the adapter is chosen by host, subdomains included, look-alikes excluded', () => {
+    assert.equal(siteFor('app.reptyle.com').id, 'reptyle');
+    assert.equal(siteFor('APP.REPTYLE.COM').id, 'reptyle');
+    assert.equal(siteFor('x.app.reptyle.com').id, 'reptyle');
+    assert.equal(siteFor('evilapp.reptyle.com'), null);
+    assert.equal(siteFor('reptyle.com'), null);
+    assert.equal(siteFor(''), null);
+});
+test('reptyle adapter keys pages, scenes and models', () => {
+    const r = siteFor('app.reptyle.com');
+    assert.ok(r.detail.test('/models/11304'));
+    assert.ok(!r.detail.test('/models'));
+    assert.ok(r.listing.test('/models/'));
+    assert.equal(r.sceneKey('https://app.reptyle.com/movies/32219?r=x'), '32219');
+    assert.equal(r.modelKey('/models/11304/'), '11304');
+    assert.equal(r.modelUrl('https://app.reptyle.com', '11304'), 'https://app.reptyle.com/models/11304');
 });
 test('ids come from movie and model links only', () => {
     assert.equal(extractMovieId('https://app.reptyle.com/movies/32219?r=x'), '32219');

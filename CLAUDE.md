@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Reptyle Stash Model Link
 
-Tampermonkey userscript for desktop Chrome that links Reptyle model pages to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Independent of the other userscripts in the docker-stuff workspace; it is set up like `colum-manager` (one dependency-free userscript, no build step).
+Tampermonkey userscript for desktop Chrome that links model pages of supported sites (one adapter per site; Reptyle so far) to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Independent of the other userscripts in the docker-stuff workspace; it is set up like `colum-manager` (one dependency-free userscript, no build step).
 
 @AGENTS.md
 
 ## Project map
 
-- `reptyle-stash-model-link.user.js` is the installable userscript, written in the original ES5 `var` style. The pure helpers (`normUrl`, `normTitle`, `normName`, `extractMovieId`, `extractModelId`) are exported through the `module.exports` guard for tests; everything else needs the page.
+- `reptyle-stash-model-link.user.js` is the installable userscript, written in the original ES5 `var` style. `SITES` (site adapters: paths, selectors, `sceneHosts`, `sceneKey`/`modelKey`/`modelUrl`) sits above the `module.exports` guard; the core picks the adapter with `siteFor(location.hostname)` and reads every page-specific value from it. `SITES`, `siteFor` and the pure helpers (`normUrl`, `normTitle`, `normName`, `extractMovieId`, `extractModelId`) are exported for tests; everything else needs the page.
+- Each adapter host needs a whole-site `@match`; `test/core.test.cjs` fails if `@match` and the adapter hosts differ. Stash usually stores public tour URLs while members areas use other hosts, so scenes are matched by `sceneKey`, not by full URL.
 - `markModelCards` carries a documented `eslint-disable-next-line no-loop-func`: its handlers read the shared performer cache at click time on purpose.
 - `test/core.test.cjs` is the only test file (Node's built-in runner). `tools/` holds the two lint entry points copied from `colum-manager`; both read `<package name>.user.js`.
 
@@ -19,11 +20,12 @@ Tampermonkey userscript for desktop Chrome that links Reptyle model pages to the
 - `npm run check` = `lint` + `test`. `lint` runs the Tampermonkey 5.5.1 ESLint worker from the Windows Chrome profile and fails if that extension version is not installed; it also asserts `@version` equals the runtime `VERSION`.
 - `npm run check:ci` = `lint:ci` + `test` (needs `npm ci --prefix tools/lint-ci` once). `.github/workflows/ci.yml` runs it.
 - Single test file: `node --test test/core.test.cjs`.
-- Releasing: bump `@version`, `VERSION` and `package.json` together (currently 7.0.0), then follow AGENTS.md.
+- Releasing: bump `@version`, `VERSION` and `package.json` together (currently 8.0.0), then follow AGENTS.md. Keep `@name`/`@namespace` unchanged so Tampermonkey updates the installed script instead of adding a second one.
 
 ## Architecture
 
-- One IIFE; Reptyle is a single-page app, so the script matches the whole site and acts on the current path. Keep page changes idempotent and never rely on a load event per page.
+- One IIFE; sites like Reptyle are single-page apps, so the script matches whole sites and acts on the current path. Keep page changes idempotent and never rely on a load event per page.
 - Network access is only through `GM_xmlhttpRequest` and the matching `@connect` entries; `siderRuntime` (the runtime the code was originally written for) must not come back.
-- Never store session tokens, `?r=` parameters, cookies, HAR data or signed URLs in this repository.
-- Running it for real needs Tampermonkey in desktop Chrome, a logged-in Reptyle session and, except for the downloader, a running local Stash; none of that is available to the tests.
+- The only Stash write is `performerUpdate` in `addPerformerUrl`, which always asks `confirm()` first.
+- Never store session tokens, `?r=` parameters, cookies, HAR data, signed URLs or account names in this repository.
+- Running it for real needs Tampermonkey in desktop Chrome, a logged-in session on the site and a running local Stash; none of that is available to the tests.

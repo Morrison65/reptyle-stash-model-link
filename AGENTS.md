@@ -14,7 +14,8 @@ The user requires every finished userscript version to be committed, and every c
 
 - The installable file is `reptyle-stash-model-link.user.js`. There is no build step: the edited file is the installed file.
 - Cross-origin requests go through `GM_xmlhttpRequest` with a matching `@connect`; never reintroduce `siderRuntime` (the original Sider code-agent runtime this code was ported from).
-- Reptyle is a single-page app: keep `@match` on the whole site and make every page-specific action idempotent.
+- Supported sites (Reptyle first) can be single-page apps: keep `@match` on whole sites, one per adapter host in `SITES`, and make every page-specific action idempotent.
+- Put page-specific selectors and URL rules in the site's `SITES` adapter, never in the core.
 - Build UI with DOM APIs, not HTML strings.
 - Keep the pure helpers behind the `module.exports` guard near the top so `test/core.test.cjs` can import them without a DOM.
-- Never commit Reptyle session tokens, `?r=` referral parameters, cookies or signed CDN URLs.
+- Never commit session tokens, `?r=` referral parameters, cookies, signed CDN URLs or account names of any site.

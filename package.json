@@ -1,8 +1,8 @@
 {
   "name": "reptyle-stash-model-link",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "private": true,
-  "description": "Tampermonkey userscript: Stash performer match, add-URL button and in-Stash marks on Reptyle model pages",
+  "description": "Tampermonkey userscript: Stash performer match, add-URL button and in-Stash marks on model pages of supported sites (per-site adapters, Reptyle first)",
   "scripts": {
     "lint": "node tools/lint-tampermonkey.cjs",
     "test": "node --test test/core.test.cjs",
