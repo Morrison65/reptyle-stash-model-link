@@ -1,6 +1,11 @@
 # reptyle-stash-model-link
 
-Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.1.1**. Supported so far: Reptyle (`app.reptyle.com`) and Adult Time members (`members.adulttime.com`); more sites follow as adapters.
+Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.2.0**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+
+**v8.2.0** adds the Brazzers adapter and model-filtered pages:
+- **Brazzers** model pages (`/model/<id>/<slug>`): the performer is found first by the model id in a saved Stash URL (`brazzers.com/pornstar/<id>/` or `brazzers.com/model/<id>/`), then by the name from the URL. Videos match by the Aylo scene id, which members links (`/scene/<id>/`) share with the tour URLs Stash holds (`brazzers.com/video/<id>/`). Brazzers class names are build hashes, so cards are found by structure: the largest element around a link that holds only that one scene or model.
+- **Pages filtered to one model** count as that model's page: Brazzers `?models=<id>` (for example `/scenes?addon=…&models=65308`) and Adult Time's "See all" list `/en/videos?refinementList[actors.name][0]=<Name>`. Model pages remember their name and URL (Tampermonkey storage, `GM_setValue`), so a filtered page knows them later; a Brazzers id that is neither remembered nor in Stash is named from the model links on the page once its cards load.
+- A filtered page with no known model page has no URL to save, so it shows no add button.
 
 **v8.1.0** adds the Adult Time adapter: on a pornstar page (`/en/pornstar/view/<Name>/<id>`) the name comes from the URL and the panel floats at the top right; videos are matched by the Gamma scene id, which is the same on every Gamma site, so scenes Stash holds under evilangel.com, puretaboo.com, tabooheat.com and the other `/en/video/` sites count too. Its card selectors (`.ListingGrid-ListingGridItem`, `SceneThumb`) come from the members listing; the pornstar page itself was not available to test, so model-listing marks on `/en/pornstars` are a best guess. Also new: the video count follows cards that render late, and names compare without accents or punctuation. **v8.1.1** reads the Adult Time video title from the card's `h2.Title` (the scene link only wraps the image), so the title fallback and the green title work there; the card structure was confirmed from a members `/en/videos/` page.
 
@@ -35,7 +40,7 @@ Add an object to `SITES` and an `@match https://<host>/*` per host (a test check
 ## Permissions
 
 - `@connect localhost`: GraphQL calls to `http://localhost:9999/graphql`. Tampermonkey asks once; choose **Always allow**. If your Stash runs elsewhere, change `STASH_ORIGIN` and add a matching `@connect`.
-- `@grant GM_xmlhttpRequest` only.
+- `@grant GM_xmlhttpRequest` for Stash, `GM_getValue`/`GM_setValue` to remember model pages (name and URL per site id). Tampermonkey may ask to confirm the new grants once when it updates to 8.2.0.
 
 ## Checks
 

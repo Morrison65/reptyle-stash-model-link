@@ -1,14 +1,17 @@
 // ==UserScript==
 // @name         Reptyle Stash Model Link
 // @namespace    local.reptyle-stash-model-link
-// @version      8.1.1
+// @version      8.2.0
 // @description  Shows the Stash performer match on model pages of supported sites (one adapter per site, Reptyle first), with an add-URL button and Stash link, and marks models and videos already in Stash on listings.
 // @match        https://app.reptyle.com/*
 // @match        https://members.adulttime.com/*
+// @match        https://site-ma.brazzers.com/*
 // @updateURL    https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js
 // @downloadURL  https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      localhost
 // @noframes
 // ==/UserScript==
@@ -17,11 +20,15 @@
 
 (function () {
   'use strict';
-  const VERSION = '8.1.1';
+  const VERSION = '8.2.0';
   // One adapter per site or network: everything page-specific lives here, the core below is generic.
   // hosts: page hosts the adapter runs on (each needs an @match). detail/listing: model page paths.
   // anchorSel: the panel goes after it; empty means a floating panel. nameFromUrl (optional): model name from a path, tried first.
   // videoTitleSel (optional): the title element in a video card when the title is not the text of a scene link.
+  // videoCardSel/modelCardSel empty: a card is the largest ancestor of a link that still holds only that one scene or model.
+  // modelParam / modelNameParam (optional): a query parameter that filters a page to one model by id (?models=<id>) or by name;
+  // such a page counts as that model's page.
+  // performerUrlParts(id) (optional): URL fragments that find the performer in Stash by the site's model id, before any name search.
   // sceneUrlParts: URL fragments that select this site's scenes in Stash; sceneKey/modelKey reduce a URL to the id both sides share.
   var SITES = [{
     id: 'reptyle',
@@ -55,6 +62,8 @@
     anchorSel: '',
     headingFallbackSel: 'h1',
     nameFromUrl: gammaNameFromUrl,
+    // "See all" on a pornstar page opens /en/videos?refinementList[actors.name][0]=<Name>.
+    modelNameParam: 'refinementList[actors.name][0]',
     videoCardSel: '.ListingGrid-ListingGridItem, [class*="SceneThumb"]',
     videoLinkSel: 'a[href*="/video/"]',
     // Members cards: the scene link wraps only the image, the title is a plain h2.Title next to a channel link.
@@ -67,10 +76,34 @@
     sceneKey: extractGammaSceneId,
     modelKey: extractGammaActorId,
     modelUrl: function (origin, key, href) { var u = new URL(href, origin); return u.origin + u.pathname.replace(/\/+$/, ''); }
+  }, {
+    // Aylo members area. Members links are /scene/<id>/<slug> and /model/<id>/<slug>; Stash mostly holds the tour URLs
+    // brazzers.com/video/<id>/<slug> and brazzers.com/pornstar/<id>/<slug>, with the same ids. Classes are build hashes,
+    // so cards are found by structure.
+    id: 'brazzers',
+    hosts: ['site-ma.brazzers.com'],
+    detail: /^\/model\/\d+/,
+    listing: /^\/models\/?$/,
+    modelParam: 'models',
+    headingSel: 'h1',
+    anchorSel: '',
+    headingFallbackSel: 'h2',
+    nameFromUrl: ayloNameFromUrl,
+    videoCardSel: '',
+    videoLinkSel: 'a[href*="/scene/"], a[href*="/video/"]',
+    modelLinkSel: 'a[href*="/model/"]',
+    modelCardSel: '',
+    modelEntrySel: '',
+    modelNameSel: '',
+    sceneUrlParts: ['brazzers.com/video/', 'brazzers.com/scene/', 'brazzersnetwork.com/video/', 'brazzersvr.com/video/'],
+    sceneKey: ayloId(/(^|\.)brazzers(network|vr)?\.com$/, 'video|scene'),
+    modelKey: ayloId(/(^|\.)brazzers(network|vr)?\.com$/, 'model|pornstar'),
+    modelUrl: function (origin, key, href) { var u = new URL(href, origin); return u.origin + u.pathname.replace(/\/+$/, ''); },
+    performerUrlParts: function (id) { return ['brazzers.com/model/' + id + '/', 'brazzers.com/pornstar/' + id + '/', 'brazzersnetwork.com/pornstar/' + id + '/']; }
   }];
   // Node unit tests load the pure helpers only (function declarations are hoisted); nothing else touches the page.
   if (typeof module === 'object' && module.exports) {
-    module.exports = { VERSION: VERSION, SITES: SITES, siteFor: siteFor, normUrl: normUrl, normTitle: normTitle, normName: normName, extractMovieId: extractMovieId, extractModelId: extractModelId, extractGammaSceneId: extractGammaSceneId, extractGammaActorId: extractGammaActorId, gammaNameFromUrl: gammaNameFromUrl };
+    module.exports = { VERSION: VERSION, SITES: SITES, siteFor: siteFor, normUrl: normUrl, normTitle: normTitle, normName: normName, extractMovieId: extractMovieId, extractModelId: extractModelId, extractGammaSceneId: extractGammaSceneId, extractGammaActorId: extractGammaActorId, gammaNameFromUrl: gammaNameFromUrl, ayloId: ayloId, ayloNameFromUrl: ayloNameFromUrl, modelIdFromParam: modelIdFromParam, modelNameFromParam: modelNameFromParam };
     return;
   }
   var site = siteFor(location.hostname);
@@ -95,6 +128,13 @@
   function extractGammaActorId(href) { var m = String(href || '').match(/\/pornstar\/(?:view\/)?[^/?#]+\/(\d+)\/?(?:[?#]|$)/i); return m ? m[1] : null; }
   // Gamma puts the name in the URL ("Kenzie-Reeves"); some sites use a placeholder slug ("name", "-").
   function gammaNameFromUrl(href) { var m = String(href || '').match(/\/pornstar\/(?:view\/)?([^/?#]+)\/\d+/i); if (!m) return ''; var slug; try { slug = decodeURIComponent(m[1]); } catch (e) { slug = m[1]; } if (/^(?:name|view|-+)$/i.test(slug)) return ''; return slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+  // Aylo ids: /<kind>/<id>/<slug> on a host matching hostRe; relative links (the current site) always qualify.
+  function ayloId(hostRe, kinds) { var pathRe = new RegExp('^/(?:' + kinds + ')/(\\d+)(?:[/?#]|$)', 'i'); return function (href) { var s = String(href || ''); var m = s.match(/^(?:https?:)?\/\/([^/?#]+)(.*)$/i); if (m && !hostRe.test(m[1].toLowerCase())) return null; var p = (m ? m[2] : s).match(pathRe); return p ? p[1] : null; }; }
+  function ayloNameFromUrl(href) { var m = String(href || '').match(/\/(?:model|pornstar)\/\d+\/([^/?#]+)/i); if (!m) return ''; var slug; try { slug = decodeURIComponent(m[1]); } catch (e) { slug = m[1]; } return slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+  // The one model a page is filtered to (?models=65308); several ids or none mean no model page.
+  function modelIdFromParam(search, param) { if (!param) return null; var v; try { v = new URLSearchParams(search).get(param); } catch (e) { return null; } return v && /^\d+$/.test(v.trim()) ? v.trim() : null; }
+  // The one model name a page is filtered to; a second value (...[1]) means several models.
+  function modelNameFromParam(search, param) { if (!param) return null; var sp; try { sp = new URLSearchParams(search); } catch (e) { return null; } var v = (sp.get(param) || '').trim(); if (!v || sp.get(param.replace(/\[0\]$/, '[1]'))) return null; return v; }
   function q(sel) { return sel ? document.querySelector(sel) : null; }
   function getPageUrl() { return location.origin + location.pathname; }
   function headingEl() { return q(site.headingSel) || q(site.headingFallbackSel); }
@@ -148,9 +188,12 @@
   function clearVideoMarks() { var els = document.querySelectorAll('.' + VIDEO_BADGE_CLASS); for (var ci = 0; ci < els.length; ci++) els[ci].remove(); var marked = document.querySelectorAll('[data-sml-video-green="1"]'); for (var cj = 0; cj < marked.length; cj++) { var m = marked[cj]; var chk = m.querySelector('[data-sml-video-check]'); if (chk) chk.remove(); m.style.color = ''; m.style.fontWeight = ''; m.removeAttribute('data-sml-video-green'); m.removeAttribute('title'); } }
   function normTitle(s) { return String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019\u201c\u201d]/g, "'").replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim(); }
   // Outermost elements matching videoCardSel that link exactly one scene, so nested matches and whole lists are skipped.
-  function videoCards() { var all = Array.prototype.filter.call(document.querySelectorAll(site.videoCardSel), function (c) { var keys = {}, n = 0; var ls = c.querySelectorAll(site.videoLinkSel); for (var i = 0; i < ls.length; i++) { var k = site.sceneKey(ls[i].getAttribute('href') || ls[i].href); if (k && !keys[k]) { keys[k] = 1; n++; } } return ls.length > 0 && n <= 1; }); return all.filter(function (c) { return !all.some(function (o) { return o !== c && o.contains(c); }); }); }
+  function keyCount(el, linkSel, keyFn) { var keys = {}, n = 0; var ls = el ? el.querySelectorAll(linkSel) : []; for (var i = 0; i < ls.length; i++) { var k = keyFn(ls[i].getAttribute('href') || ls[i].href); if (k && !keys[k]) { keys[k] = 1; n++; } } return n; }
+  // Largest ancestor of the link that holds only this one key: its parent is the list holding several.
+  function structuralCard(link, linkSel, keyFn) { for (var el = link.parentElement, d = 0; el && el !== document.body && d < 8; el = el.parentElement, d++) { if (keyCount(el.parentElement, linkSel, keyFn) > 1) return el; } return link.parentElement; }
+  function videoCards() { if (!site.videoCardSel) { var seen = [], links = document.querySelectorAll(site.videoLinkSel); for (var li = 0; li < links.length; li++) { if (!site.sceneKey(links[li].getAttribute('href') || links[li].href)) continue; var c = structuralCard(links[li], site.videoLinkSel, site.sceneKey); if (c && seen.indexOf(c) < 0) seen.push(c); } return seen.filter(function (c) { return !seen.some(function (o) { return o !== c && o.contains(c); }); }); } var all = Array.prototype.filter.call(document.querySelectorAll(site.videoCardSel), function (c) { var keys = {}, n = 0; var ls = c.querySelectorAll(site.videoLinkSel); for (var i = 0; i < ls.length; i++) { var k = site.sceneKey(ls[i].getAttribute('href') || ls[i].href); if (k && !keys[k]) { keys[k] = 1; n++; } } return ls.length > 0 && n <= 1; }); return all.filter(function (c) { return !all.some(function (o) { return o !== c && o.contains(c); }); }); }
   function cardTitleForCard(card) { if (site.videoTitleSel) { var te = card.querySelector(site.videoTitleSel); return te ? (te.innerText || te.textContent || '').trim() : ''; } var links = card.querySelectorAll(site.videoLinkSel); for (var ti = 0; ti < links.length; ti++) { var t = (links[ti].innerText || '').trim(); if (t) return t; } return ''; }
-  function matchSceneForCard(card, urlMap, titleMap) { var a = card.querySelector(site.videoLinkSel); if (!a) return null; var id = site.sceneKey(a.getAttribute('href') || a.href); if (id && urlMap && urlMap[id]) return urlMap[id]; if (titleMap) { var nt = normTitle(cardTitleForCard(card)); if (nt && titleMap[nt]) return titleMap[nt]; } return null; }
+  function matchSceneForCard(card, urlMap, titleMap) { var as = card.querySelectorAll(site.videoLinkSel), id = null; for (var ai = 0; ai < as.length && !id; ai++) id = site.sceneKey(as[ai].getAttribute('href') || as[ai].href); if (!as.length) return null; if (id && urlMap && urlMap[id]) return urlMap[id]; if (titleMap) { var nt = normTitle(cardTitleForCard(card)); if (nt && titleMap[nt]) return titleMap[nt]; } return null; }
   function fetchScenesForUrlPart(part) { return (function next(page, acc) { return gql('query($h:String!,$p:Int!){ findScenes(scene_filter:{url:{value:$h, modifier:INCLUDES}}, filter:{per_page:500, page:$p}){ scenes{ id title urls } } }', { h: part, p: page }).then(function (data) { var ss = (data && data.findScenes && data.findScenes.scenes) || []; var all = acc.concat(ss); return (ss.length < 500 || page >= 20) ? all : next(page + 1, all); }); })(1, []); }
   function fetchSceneMap() { return Promise.all(site.sceneUrlParts.map(fetchScenesForUrlPart)).then(function (lists) { var map = {}; for (var l = 0; l < lists.length; l++) { var scenes = lists[l]; for (var i = 0; i < scenes.length; i++) { var s = scenes[i]; for (var j = 0; j < ((s.urls) || []).length; j++) { var id = site.sceneKey(s.urls[j]); if (id && !map[id]) map[id] = s; } } } sceneMapCache = map; return map; }); }
   function fetchPerformerTitleMap(pid) { if (performerTitleMapCache && performerTitleMapFor === String(pid)) return Promise.resolve(performerTitleMapCache); var num = parseInt(pid, 10); return gql('query{ findScenes(scene_filter:{performers:{value:[' + num + '], modifier:INCLUDES}}, filter:{per_page:200}){ count scenes{ id title urls } } }').then(function (data) { var map = {}; var scenes = ((data && data.findScenes && data.findScenes.scenes) || []); for (var i = 0; i < scenes.length; i++) { var k = normTitle(scenes[i].title); if (k && !map[k]) map[k] = scenes[i]; } performerTitleMapCache = map; performerTitleMapFor = String(pid); return map; }); }
@@ -158,8 +201,8 @@
   function styleVideoTitle(card, hit) { var link = titleLinkForCard(card); if (!link) return; var t = link.querySelector('span') || link; if (t.getAttribute && t.getAttribute('data-sml-video-green') === '1') return; t.style.color = '#22c55e'; t.style.fontWeight = '700'; t.setAttribute('data-sml-video-green', '1'); try { t.title = (hit.title || '') + ' (Stash id ' + hit.id + ')'; } catch (e) {} var chk = document.createElement('span'); chk.setAttribute('data-sml-video-check', '1'); chk.textContent = '\u2713 '; chk.style.cssText = 'color:#22c55e;font-weight:800;'; try { t.insertBefore(chk, t.firstChild); } catch (e2) {} }
   function markVideos(urlMap, titleMap) { var um = urlMap || sceneMapCache || {}; var tm = (typeof titleMap === 'undefined') ? performerTitleMapCache : titleMap; var cards = videoCards(); for (var i = 0; i < cards.length; i++) { var card = cards[i]; var hit = matchSceneForCard(card, um, tm); if (!hit) continue; if (!card.querySelector('.' + VIDEO_BADGE_CLASS)) { try { if (getComputedStyle(card).position === 'static') card.style.position = 'relative'; } catch (e) {} var b = document.createElement('a'); b.className = VIDEO_BADGE_CLASS; b.textContent = '\u2713 IN STASH'; b.href = STASH_ORIGIN + '/scenes/' + hit.id; b.target = '_blank'; b.rel = 'noopener'; b.title = (hit.title || '') + ' (Stash id ' + hit.id + ')'; b.style.cssText = 'position:absolute;top:6px;left:6px;z-index:5;background:#16a34a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.4);'; card.appendChild(b); } try { styleVideoTitle(card, hit); } catch (e2) {} } }
   function extractModelId(href) { var m = String(href || '').match(/\/models\/(\d+)/); return m ? m[1] : null; }
-  function modelCardForLink(a) { try { var card = a.closest(site.modelCardSel); if (card) return card; } catch (e) {} var el = a; for (var mi = 0; mi < 4 && el; mi++) { el = el.parentElement; if (el && el.matches && el.matches(site.modelEntrySel)) return el; } return a.parentElement || a; }
-  function modelNameEl(card) { return card.querySelector(site.modelNameSel) || card.querySelector('span'); }
+  function modelCardForLink(a) { if (!site.modelCardSel) return structuralCard(a, site.modelLinkSel, site.modelKey) || a; try { var card = a.closest(site.modelCardSel); if (card) return card; } catch (e) {} var el = a; for (var mi = 0; mi < 4 && el; mi++) { el = el.parentElement; if (el && el.matches && site.modelEntrySel && el.matches(site.modelEntrySel)) return el; } return a.parentElement || a; }
+  function modelNameEl(card) { return (site.modelNameSel && card.querySelector(site.modelNameSel)) || card.querySelector('span'); }
   function modelNameForLink(a, card) { var fromUrl = site.nameFromUrl ? site.nameFromUrl(a.getAttribute('href') || a.href) : ''; if (fromUrl) return fromUrl; var s = modelNameEl(card); if (s && s.textContent.trim()) return s.textContent.trim(); var t = (a.innerText || '').trim(); if (t && t.length < 80) return t; return ''; }
   // Names compare like titles: case, accents and punctuation do not count ("Anna-Belle" = "anna belle").
   function normName(s) { return normTitle(s); }
@@ -223,7 +266,7 @@
     }
     var p = state.exact;
     highlightHeading(state.name);
-    var hasUrl = p.urls.some(function (u) { return normUrl(u).toLowerCase() === normUrl(state.pageUrl).toLowerCase(); });
+    var hasUrl = !state.pageUrl || p.urls.some(function (u) { return normUrl(u).toLowerCase() === normUrl(state.pageUrl).toLowerCase(); });
     var foundLine = line('', null);
     var check = document.createElement('span');
     check.textContent = '\u2713 ';
@@ -235,7 +278,7 @@
     nameSpan.style.cssText = 'color:#22c55e;font-weight:700;';
     foundLine.appendChild(nameSpan);
     foundLine.appendChild(document.createTextNode(' (id ' + p.id + ')'));
-    line(hasUrl ? 'This page URL is saved on the performer.' : 'This page URL is NOT saved on the performer.', hasUrl ? '#94a3b8' : '#fcd34d');
+    if (state.pageUrl) line(hasUrl ? 'This page URL is saved on the performer.' : 'This page URL is NOT saved on the performer.', hasUrl ? '#94a3b8' : '#fcd34d');
     if (!hasUrl && p.urls.length) line('Saved URLs: ' + p.urls.join(', '), '#94a3b8');
     var row = document.createElement('div');
     row.style.cssText = 'margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;';
@@ -266,30 +309,64 @@
   }
   // Recounted on every re-check too, because single-page apps often render the video cards after the panel.
   function updateVideoCount() { var vidLine = document.querySelector('#' + PANEL_ID + ' [data-sml-video-count]'); if (!vidLine) return; var urlMap = sceneMapCache || {}, titleMap = performerTitleMapCache; var cards = videoCards(); var total = 0, hit = 0; for (var k = 0; k < cards.length; k++) { var la = cards[k].querySelector(site.videoLinkSel); if (!la) continue; var mid = site.sceneKey(la.getAttribute('href') || la.href); if (!mid && !cardTitleForCard(cards[k])) continue; total++; if (matchSceneForCard(cards[k], urlMap, titleMap)) hit++; } vidLine.textContent = total ? ('Videos on this page in Stash: ' + hit + '/' + total) : 'No videos found on this page.'; vidLine.style.color = hit ? '#86efac' : '#94a3b8'; }
-  function runDetail(force) {
-    if (!site.detail.test(location.pathname)) { removePanel(); resetHeading(); clearVideoMarks(); performerFound = false; sceneMapCache = null; performerTitleMapCache = null; performerTitleMapFor = null; return; }
-    if (!force && location.pathname === lastPath && document.getElementById(PANEL_ID)) return;
-    lastPath = location.pathname;
-    var anchor = findAnchor();
-    if (!anchor && site.anchorSel) return;
-    var name = getModelName();
-    var pageUrl = getPageUrl();
-    if (!name) return;
-    renderLoading(anchor, name);
-    gql('query($q:String!){ findPerformers(filter:{q:$q, per_page:10}){ count performers{ id name alias_list urls } } }', { q: name }).then(function (data) {
-      var fp = (data && data.findPerformers) || { count: 0, performers: [] };
-      var exact = null;
-      // Names first, then aliases, so a performer called exactly this wins over one that only lists it as an alias.
-      for (var i = 0; i < fp.performers.length && !exact; i++) { if (normName(fp.performers[i].name) === normName(name)) exact = fp.performers[i]; }
-      for (var j = 0; j < fp.performers.length && !exact; j++) { if (performerNames(fp.performers[j]).some(function (n) { return normName(n) === normName(name); })) exact = fp.performers[j]; }
-      var a2 = findAnchor();
-      if (a2 || !site.anchorSel) render(a2, { name: name, pageUrl: pageUrl, count: fp.count, exact: exact, candidates: fp.performers.slice(0, 5) });
-    }).catch(function (e) {
-      var a3 = findAnchor();
-      if (a3 || !site.anchorSel) render(a3, { name: name, pageUrl: pageUrl, error: e.message });
+  function paramModelId() { return site.modelParam ? modelIdFromParam(location.search, site.modelParam) : null; }
+  function paramModelName() { return site.modelNameParam ? modelNameFromParam(location.search, site.modelNameParam) : null; }
+  function isDetailPage() { return site.detail.test(location.pathname) || !!paramModelId() || !!paramModelName(); }
+  function pageKey() { var pid = paramModelId(), pn = paramModelName(); return location.pathname + (pid ? '?' + site.modelParam + '=' + pid : '') + (pn ? '?' + site.modelNameParam + '=' + pn : ''); }
+  // Model pages remember name and URL by site id, so a page filtered to that id (?models=<id>) knows them later.
+  function rememberModel(id, name, url) { try { GM_setValue('model:' + site.id + ':' + id, { name: name, url: url }); } catch (e) {} }
+  function rememberedModel(id) { try { return GM_getValue('model:' + site.id + ':' + id, null); } catch (e) { return null; } }
+  // A filtered page usually links the model itself (/model/<id>/<slug>) once its cards have loaded.
+  function modelFromPageLinks(id) { if (!site.nameFromUrl) return null; var ls = document.querySelectorAll(site.modelLinkSel); for (var i = 0; i < ls.length; i++) { var h = ls[i].getAttribute('href') || ls[i].href; if (site.modelKey(h) !== id) continue; var n = site.nameFromUrl(h); if (n) return { name: n, url: site.modelUrl(location.origin, id, h) }; } return null; }
+  var namelessPanel = false;
+  // Performer by the site's model id in a saved URL; resolves to null when the adapter has no URL rule or nothing matches.
+  function findPerformerById(id) {
+    if (!id || !site.performerUrlParts) return Promise.resolve(null);
+    var parts = site.performerUrlParts(id);
+    return Promise.all(parts.map(function (part) { return gql('query($u:String!){ findPerformers(performer_filter:{url:{value:$u, modifier:INCLUDES}}, filter:{per_page:5}){ performers{ id name alias_list urls } } }', { u: part }); })).then(function (results) {
+      for (var i = 0; i < results.length; i++) { var ps = (results[i] && results[i].findPerformers && results[i].findPerformers.performers) || []; if (ps.length) return ps[0]; }
+      return null;
     });
   }
-  function run(force) { if (site.detail.test(location.pathname)) return runDetail(force); if (site.listing.test(location.pathname)) return runListing(force); removePanel(); resetHeading(); clearVideoMarks(); clearModelMarks(); performerFound = false; sceneMapCache = null; performerTitleMapCache = null; performerTitleMapFor = null; }
+  function runDetail(force) {
+    if (!isDetailPage()) { removePanel(); resetHeading(); clearVideoMarks(); performerFound = false; sceneMapCache = null; performerTitleMapCache = null; performerTitleMapFor = null; return; }
+    // A panel drawn without a name is redrawn once the page links the model by name.
+    if (!force && pageKey() === lastPath && document.getElementById(PANEL_ID) && !(namelessPanel && paramModelId() && modelFromPageLinks(paramModelId()))) return;
+    lastPath = pageKey();
+    var anchor = findAnchor();
+    if (!anchor && site.anchorSel) return;
+    var pid = paramModelId();
+    var pname = pid ? null : paramModelName();
+    var detailId = site.detail.test(location.pathname) ? site.modelKey(location.pathname) : null;
+    var known = pid ? (rememberedModel(pid) || modelFromPageLinks(pid)) : pname ? rememberedModel('name:' + normName(pname)) : null;
+    // A filtered list page has no URL of its own to save: use the remembered model page, else none (no add button).
+    var name = pid ? ((known && known.name) || '') : pname || getModelName();
+    var pageUrl = pid ? ((known && known.url) || site.modelUrl(location.origin, pid, '/model/' + pid)) : pname ? ((known && known.url) || '') : getPageUrl();
+    var modelId = pid || detailId;
+    if (!name && !modelId) return;
+    if (name && (detailId || pid)) rememberModel(detailId || pid, name, pageUrl);
+    if (name && detailId) rememberModel('name:' + normName(name), name, pageUrl);
+    namelessPanel = !name;
+    var label = name || ('model #' + modelId);
+    renderLoading(anchor, label);
+    findPerformerById(modelId).then(function (byId) {
+      if (byId) return { count: 1, performers: [byId], byId: true };
+      if (!name) return { count: 0, performers: [] };
+      return gql('query($q:String!){ findPerformers(filter:{q:$q, per_page:10}){ count performers{ id name alias_list urls } } }', { q: name }).then(function (data) { return (data && data.findPerformers) || { count: 0, performers: [] }; });
+    }).then(function (fp) {
+      var exact = fp.byId ? fp.performers[0] : null;
+      if (exact && pid && !name) rememberModel(pid, exact.name, pageUrl);
+      // Names first, then aliases, so a performer called exactly this wins over one that only lists it as an alias.
+      for (var i = 0; i < fp.performers.length && !exact && name; i++) { if (normName(fp.performers[i].name) === normName(name)) exact = fp.performers[i]; }
+      for (var j = 0; j < fp.performers.length && !exact && name; j++) { if (performerNames(fp.performers[j]).some(function (n) { return normName(n) === normName(name); })) exact = fp.performers[j]; }
+      var a2 = findAnchor();
+      if (a2 || !site.anchorSel) render(a2, { name: label, pageUrl: pageUrl, count: fp.count, exact: exact, candidates: fp.performers.slice(0, 5) });
+    }).catch(function (e) {
+      var a3 = findAnchor();
+      if (a3 || !site.anchorSel) render(a3, { name: label, pageUrl: pageUrl, error: e.message });
+    });
+  }
+  function run(force) { if (isDetailPage()) return runDetail(force); if (site.listing.test(location.pathname)) return runListing(force); removePanel(); resetHeading(); clearVideoMarks(); clearModelMarks(); performerFound = false; sceneMapCache = null; performerTitleMapCache = null; performerTitleMapFor = null; }
   var tries = 0;
   var boot = setInterval(function () { tries++; if (findAnchor() || !site.anchorSel || q(site.modelEntrySel)) { clearInterval(boot); run(true); } else if (tries > 40) clearInterval(boot); }, 500);
   setInterval(function () { try { if (performerFound && (sceneMapCache || performerTitleMapCache)) { markVideos(sceneMapCache, performerTitleMapCache); updateVideoCount(); } } catch (e) {} try { if (performerMapCache && site.listing.test(location.pathname)) markModelCards(performerMapCache); } catch (e2) {} run(false); }, 2000);

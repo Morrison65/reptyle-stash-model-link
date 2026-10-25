@@ -26,7 +26,7 @@ test('every GM API used is granted and every grant is used', () => {
     for (const api of meta.grant) assert.match(code, new RegExp('\\b' + api + '\\b'), api + ' is granted but unused');
 });
 
-const { SITES, siteFor, normUrl, normTitle, normName, extractMovieId, extractModelId, extractGammaSceneId, extractGammaActorId, gammaNameFromUrl } = require('../reptyle-stash-model-link.user.js');
+const { SITES, siteFor, normUrl, normTitle, normName, extractMovieId, extractModelId, extractGammaSceneId, extractGammaActorId, gammaNameFromUrl, ayloNameFromUrl, modelIdFromParam, modelNameFromParam } = require('../reptyle-stash-model-link.user.js');
 
 test('updates come from the raw file on master', () => {
     const raw = 'https://raw.githubusercontent.com/Morrison65/' + pkg.name + '/master/' + pkg.name + '.user.js';
@@ -39,9 +39,13 @@ test('every adapter host has a whole-site @match and Stash is the only connect',
     assert.deepEqual(meta.connect, ['localhost']);
 });
 test('adapters are complete and ids are unique', () => {
-    const fields = ['id', 'hosts', 'detail', 'listing', 'videoCardSel', 'videoLinkSel', 'modelLinkSel', 'modelCardSel', 'modelEntrySel', 'modelNameSel', 'sceneUrlParts', 'sceneKey', 'modelKey', 'modelUrl'];
+    const fields = ['id', 'hosts', 'detail', 'listing', 'videoLinkSel', 'modelLinkSel', 'sceneUrlParts', 'sceneKey', 'modelKey', 'modelUrl'];
+    // Empty card selectors are allowed: they switch to structural card detection.
+    const selectors = ['videoCardSel', 'modelCardSel', 'modelEntrySel', 'modelNameSel'];
     for (const s of SITES) {
         for (const f of fields) assert.ok(s[f], s.id + ' lacks ' + f);
+        for (const f of selectors) assert.equal(typeof s[f], 'string', s.id + ' needs ' + f + ' (may be empty)');
+        if (s.modelParam) assert.equal(typeof s.performerUrlParts, 'function', s.id + ' filters by model id but cannot look it up');
         assert.equal(typeof s.anchorSel, 'string', s.id + ' needs anchorSel (empty for a floating panel)');
         assert.ok(s.anchorSel || s.nameFromUrl, s.id + ' needs an anchor or nameFromUrl to find the name');
     }
@@ -96,6 +100,40 @@ test('gamma helpers read names and ids from URLs', () => {
     assert.equal(gammaNameFromUrl('https://www.evilangel.com/en/pornstar/view/34290'), '');
     assert.equal(normTitle('Sofía in Café Olé'), 'sofia in cafe ole');
     assert.equal(extractGammaSceneId(null), null);
+});
+test('brazzers adapter: members ids match tour URLs in Stash, other networks do not', () => {
+    const b = siteFor('site-ma.brazzers.com');
+    assert.equal(b.id, 'brazzers');
+    assert.ok(b.detail.test('/model/2717/kenzie-reeves'));
+    assert.ok(!b.detail.test('/models'));
+    assert.ok(b.listing.test('/models'));
+    assert.equal(b.sceneKey('/scene/10045231/some-title'), '10045231');
+    assert.equal(b.sceneKey('https://www.brazzers.com/video/10045231/some-title'), '10045231');
+    assert.equal(b.sceneKey('https://brazzersnetwork.com/video/7/x'), '7');
+    assert.equal(b.sceneKey('https://www.bangbros.com/video/10045231/x'), null);
+    assert.equal(b.sceneKey('https://evilbrazzers.com.example/video/1/x'), null);
+    assert.equal(b.sceneKey('/model/2717/kenzie-reeves'), null);
+    assert.equal(b.modelKey('/model/2717/kenzie-reeves'), '2717');
+    assert.equal(b.modelKey('https://www.brazzers.com/pornstar/2717/kenzie-reeves'), '2717');
+    assert.equal(b.modelUrl('https://site-ma.brazzers.com', '2717', '/model/2717/kenzie-reeves?x=1'), 'https://site-ma.brazzers.com/model/2717/kenzie-reeves');
+    assert.deepEqual(b.performerUrlParts('65308'), ['brazzers.com/model/65308/', 'brazzers.com/pornstar/65308/', 'brazzersnetwork.com/pornstar/65308/']);
+    assert.equal(ayloNameFromUrl('/model/2717/kenzie-reeves'), 'kenzie reeves');
+    assert.equal(normName(ayloNameFromUrl('/model/2717/kenzie-reeves')), normName('Kenzie Reeves'));
+});
+test('a page filtered to one model id counts as that model page', () => {
+    assert.equal(modelIdFromParam('?addon=162%2C5971%2C5951&models=65308', 'models'), '65308');
+    assert.equal(modelIdFromParam('?models=65308%2C2717', 'models'), null);
+    assert.equal(modelIdFromParam('?models=', 'models'), null);
+    assert.equal(modelIdFromParam('?addon=1', 'models'), null);
+    assert.equal(modelIdFromParam('?models=1', undefined), null);
+});
+test('adult time "See all" pages are filtered to one model by name', () => {
+    const at = siteFor('members.adulttime.com');
+    const seeAll = '?sortBy=all_scenes_latest_desc&refinementList%5Bactors.name%5D%5B0%5D=Demi%20Hawks&fromSeeAll=1';
+    assert.equal(modelNameFromParam(seeAll, at.modelNameParam), 'Demi Hawks');
+    assert.equal(modelNameFromParam(seeAll + '&refinementList%5Bactors.name%5D%5B1%5D=Other', at.modelNameParam), null);
+    assert.equal(modelNameFromParam('?sortBy=x', at.modelNameParam), null);
+    assert.equal(modelNameFromParam(seeAll, undefined), null);
 });
 test('URL comparison ignores trailing slashes and padding', () => {
     assert.equal(normUrl(' https://app.reptyle.com/models/1// '), 'https://app.reptyle.com/models/1');
