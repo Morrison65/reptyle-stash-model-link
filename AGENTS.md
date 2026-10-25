@@ -3,7 +3,7 @@
 The user requires every finished userscript version to be committed, and every completed commit to be pushed automatically.
 
 - Keep the metadata `@version`, runtime `VERSION` and package version consistent (`npm run lint` asserts the first two match).
-- Installs update themselves from the raw file on `master` (`@updateURL`/`@downloadURL`): bump `@version` with every script change that is pushed, and push only after `npm run check` passes.
+- Installs update themselves from the raw file on `master` (`@updateURL`/`@downloadURL`): bump `@version` with every script change that is pushed, and push only after `npm run check` passes. `npm run check` (and CI) fail when the userscript differs from `origin/master` without a higher `@version` (`tools/check-version-bump.cjs`).
 - Update behavior documentation and run `npm run check` before committing.
 - Inspect the scoped staged diff; preserve unrelated work. Do not commit captured pages, HAR files, signed URLs, browser profiles, logs or media.
 - Include the version in the commit subject.

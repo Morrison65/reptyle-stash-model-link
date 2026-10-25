@@ -18,7 +18,7 @@ Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*` (t
 
 ## Updates
 
-Since **v8.0.1** the script carries `@updateURL`/`@downloadURL` pointing at the raw file on `master`. Tampermonkey checks that URL on its update interval (default daily; **Utilities → Check for userscript updates** or the script's *Last updated* column forces it) and installs a pushed version when its `@version` is higher. A push without a version bump is not picked up. A copy imported from a file before v8.0.1 has no update URL; install it once from the link above.
+Since **v8.0.1** the script carries `@updateURL`/`@downloadURL` pointing at the raw file on `master`. Tampermonkey checks that URL on its update interval (default daily; **Utilities → Check for userscript updates** or the script's *Last updated* column forces it) and installs a pushed version when its `@version` is higher. A push without a version bump is not picked up, so `npm run check` and CI refuse a changed userscript whose `@version` is not higher than on `origin/master` (`tools/check-version-bump.cjs`). A copy imported from a file before v8.0.1 has no update URL; install it once from the link above.
 
 ## What it does
 
