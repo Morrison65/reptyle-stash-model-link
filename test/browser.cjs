@@ -20,7 +20,8 @@ const PERFS = [
   { id: '7', name: 'Jane Doe', alias_list: [], urls: [] },
   { id: '8', name: 'Real Name', alias_list: ['Alias Girl'], urls: ['https://app.reptyle.com/models/2'] },
   { id: '217', name: 'Kenzie Reeves', alias_list: ['Tiny Kenzie'], urls: ['https://site-ma.brazzers.com/model/2717/kenzie-reeves'] },
-  { id: '300', name: 'Nia Nacci', alias_list: [], urls: [] }
+  { id: '300', name: 'Nia Nacci', alias_list: [], urls: [] },
+  { id: '125', name: 'Demi Hawks', alias_list: [], urls: Array.from({ length: 45 }, (_, i) => 'https://example.com/profile/demi-hawks-' + i) }
 ];
 window.GM_xmlhttpRequest = function (o) {
   const body = JSON.parse(o.data), q = body.query, v = body.variables || {};
@@ -149,6 +150,34 @@ async function connect(url) {
     await ev('__confirm=true; [...document.querySelectorAll("#stash-model-link-panel button")].find(b=>b.textContent.startsWith("Add this URL")).click()');
     await wait('__log.some(x=>x.includes("\\"id\\":\\"217\\""))');
     assert.ok(await ev('__log.some(x=>x==="update:"+JSON.stringify({id:"217",urls:["https://site-ma.brazzers.com/model/2717/kenzie-reeves","https://members.adulttime.com/en/pornstar/view/Kenzie-Reeves/49648"]}))'));
+
+    // Floating panel stays small next to the grid: 45 saved URLs are folded, height is capped, and the fold toggle
+    // keeps only the summary lines and is remembered on the next page.
+    await go('/en/pornstar/view/Demi-Hawks/53303', 'members.adulttime.com');
+    await wait(panel + '.includes("Found in Stash: Demi Hawks (id 125)")');
+    const box = 'document.getElementById("stash-model-link-panel")';
+    assert.equal(await ev(box + '.querySelector("details").open'), false);
+    assert.equal(await ev(box + '.querySelector("summary").textContent'), 'Saved URLs (45)');
+    assert.ok(await ev(box + '.getBoundingClientRect().height < 260'), 'panel height ' + await ev(box + '.getBoundingClientRect().height'));
+    assert.ok(await ev(box + '.getBoundingClientRect().width <= 340'));
+    await ev(box + '.querySelector("details").open = true');
+    assert.ok(await ev(box + '.getBoundingClientRect().height <= innerHeight - 100'));
+    // Content taller than the cap scrolls inside the panel (the open URL list is long).
+    await ev(box + '.querySelector("details > div").style.maxHeight = "none"');
+    assert.ok(await ev(box + '.scrollHeight > ' + box + '.clientHeight'), 'panel content should overflow');
+    assert.equal(await ev('getComputedStyle(' + box + ').overflowY'), 'auto');
+    assert.equal(await ev('(' + box + '.scrollTop = 50, ' + box + '.scrollTop)'), 50);
+    await ev(box + '.querySelector("details > div").style.maxHeight = "140px"');
+    await ev(box + '.querySelector("[data-sml-toggle]").click()');
+    const visible = '[...' + box + '.children].filter(e=>e.style.display!=="none" && !e.hasAttribute("data-sml-toggle")).map(e=>e.innerText.split("\\n")[0])';
+    await wait(panel + '.includes("Videos on this page in Stash")');
+    assert.deepEqual(await ev(visible), ['STASH', '\u2713 Found in Stash: Demi Hawks (id 125)', 'Videos on this page in Stash: 1/3']);
+    assert.equal(await ev(box + '.querySelector("[data-sml-toggle]").getAttribute("aria-expanded")'), 'false');
+    await go('/en/pornstar/view/Kenzie-Reeves/49648', 'members.adulttime.com');
+    await wait(panel + '.includes("Found in Stash: Kenzie Reeves")');
+    assert.equal(await ev(box + '.querySelector("details")?.style.display || "none"'), 'none');
+    await ev(box + '.querySelector("[data-sml-toggle]").click()');
+    assert.equal(await ev('GM_getValue("panelCollapsed", null)'), false);
 
     // "See all" from the pornstar page: /en/videos filtered to her name is her model page; the URL to save is the remembered pornstar page.
     await go('/en/videos/?sortBy=all_scenes_latest_desc&refinementList%5Bactors.name%5D%5B0%5D=Kenzie%20Reeves&fromSeeAll=1', 'members.adulttime.com');

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reptyle Stash Model Link
 // @namespace    local.reptyle-stash-model-link
-// @version      8.2.0
+// @version      8.2.1
 // @description  Shows the Stash performer match on model pages of supported sites (one adapter per site, Reptyle first), with an add-URL button and Stash link, and marks models and videos already in Stash on listings.
 // @match        https://app.reptyle.com/*
 // @match        https://members.adulttime.com/*
@@ -20,7 +20,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '8.2.0';
+  const VERSION = '8.2.1';
   // One adapter per site or network: everything page-specific lives here, the core below is generic.
   // hosts: page hosts the adapter runs on (each needs an @match). detail/listing: model page paths.
   // anchorSel: the panel goes after it; empty means a floating panel. nameFromUrl (optional): model name from a path, tried first.
@@ -217,7 +217,23 @@
   function removePanel() { var old = document.getElementById(PANEL_ID); if (old) old.remove(); }
   function stylePanel(el) { el.style.cssText = 'margin:10px 0;padding:10px 12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:10px;font-size:13px;line-height:1.55;max-width:680px;font-family:system-ui,sans-serif;'; }
   // After the anchor, or floating top right when the adapter has none.
-  function placePanel(anchor, div) { if (anchor) { anchor.insertAdjacentElement('afterend', div); return; } div.style.position = 'fixed'; div.style.top = '70px'; div.style.right = '16px'; div.style.zIndex = '2147483000'; div.style.maxWidth = '420px'; div.style.margin = '0'; div.style.boxShadow = '0 4px 16px rgba(0,0,0,.5)'; document.body.appendChild(div); }
+  // After the anchor, or floating top right when the adapter has none. A floating panel stays small: capped height,
+  // and a toggle that folds it to its marked summary lines (remembered across pages).
+  function panelCollapsed() { try { return !!GM_getValue('panelCollapsed', false); } catch (e) { return false; } }
+  function applyCollapsed(div) { var c = panelCollapsed(); var kids = div.children; for (var i = 1; i < kids.length; i++) { if (kids[i].hasAttribute('data-sml-toggle')) continue; kids[i].style.display = c && !kids[i].hasAttribute('data-sml-keep') ? 'none' : ''; } var t = div.querySelector('[data-sml-toggle]'); if (t) { t.textContent = c ? '+' : '\u2013'; t.title = c ? 'Show details' : 'Fold to summary'; t.setAttribute('aria-expanded', c ? 'false' : 'true'); } }
+  function placePanel(anchor, div) {
+    if (anchor) { anchor.insertAdjacentElement('afterend', div); return; }
+    div.style.position = 'fixed'; div.style.top = '70px'; div.style.right = '16px'; div.style.zIndex = '2147483000'; div.style.maxWidth = '340px'; div.style.maxHeight = 'calc(100vh - 100px)'; div.style.overflowY = 'auto'; div.style.overscrollBehavior = 'contain'; div.style.margin = '0'; div.style.fontSize = '12px'; div.style.boxShadow = '0 4px 16px rgba(0,0,0,.5)';
+    var t = document.createElement('button');
+    t.type = 'button';
+    t.setAttribute('data-sml-toggle', '1');
+    t.style.cssText = 'position:absolute;top:4px;right:6px;width:22px;height:22px;padding:0;border:1px solid #475569;border-radius:5px;background:#1e293b;color:#e2e8f0;cursor:pointer;font:700 13px/1 system-ui,sans-serif;';
+    t.addEventListener('click', function () { try { GM_setValue('panelCollapsed', !panelCollapsed()); } catch (e) {} applyCollapsed(div); });
+    div.style.paddingRight = '34px';
+    div.appendChild(t);
+    document.body.appendChild(div);
+    applyCollapsed(div);
+  }
   function renderLoading(anchor, name) {
     removePanel();
     resetHeading();
@@ -246,7 +262,7 @@
       resetHeading();
       clearVideoMarks();
       performerFound = false;
-      line('Cannot reach Stash at ' + STASH_ORIGIN + ': ' + state.error, '#fca5a5');
+      line('Cannot reach Stash at ' + STASH_ORIGIN + ': ' + state.error, '#fca5a5').setAttribute('data-sml-keep', '1');
       var retry = document.createElement('button');
       retry.textContent = 'Retry';
       retry.style.cssText = 'margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;';
@@ -259,7 +275,7 @@
       resetHeading();
       clearVideoMarks();
       performerFound = false;
-      line('Model "' + state.name + '" NOT found in Stash (' + state.count + ' fuzzy hit(s)).', '#fcd34d');
+      line('Model "' + state.name + '" NOT found in Stash (' + state.count + ' fuzzy hit(s)).', '#fcd34d').setAttribute('data-sml-keep', '1');
       if (state.candidates.length) line('Closest: ' + state.candidates.map(function (p) { return p.name + ' (id ' + p.id + ')'; }).join(', '), '#94a3b8');
       placePanel(anchor, div);
       return;
@@ -268,6 +284,7 @@
     highlightHeading(state.name);
     var hasUrl = !state.pageUrl || p.urls.some(function (u) { return normUrl(u).toLowerCase() === normUrl(state.pageUrl).toLowerCase(); });
     var foundLine = line('', null);
+    foundLine.setAttribute('data-sml-keep', '1');
     var check = document.createElement('span');
     check.textContent = '\u2713 ';
     check.style.cssText = 'color:#22c55e;font-weight:800;';
@@ -279,7 +296,20 @@
     foundLine.appendChild(nameSpan);
     foundLine.appendChild(document.createTextNode(' (id ' + p.id + ')'));
     if (state.pageUrl) line(hasUrl ? 'This page URL is saved on the performer.' : 'This page URL is NOT saved on the performer.', hasUrl ? '#94a3b8' : '#fcd34d');
-    if (!hasUrl && p.urls.length) line('Saved URLs: ' + p.urls.join(', '), '#94a3b8');
+    if (!hasUrl && p.urls.length) {
+      // Folded list: performers often carry dozens of URLs.
+      var saved = document.createElement('details');
+      saved.style.cssText = 'color:#94a3b8;';
+      var sum = document.createElement('summary');
+      sum.style.cssText = 'cursor:pointer;';
+      sum.textContent = 'Saved URLs (' + p.urls.length + ')';
+      saved.appendChild(sum);
+      var list = document.createElement('div');
+      list.style.cssText = 'max-height:140px;overflow:auto;word-break:break-all;font-size:11px;padding-left:12px;';
+      for (var ui = 0; ui < p.urls.length; ui++) { var urlRow = document.createElement('div'); urlRow.textContent = p.urls[ui]; list.appendChild(urlRow); }
+      saved.appendChild(list);
+      div.appendChild(saved);
+    }
     var row = document.createElement('div');
     row.style.cssText = 'margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;';
     div.appendChild(row);
@@ -305,6 +335,7 @@
     placePanel(anchor, div);
     performerFound = true;
     vidLine.setAttribute('data-sml-video-count', '1');
+    vidLine.setAttribute('data-sml-keep', '1');
     Promise.all([fetchSceneMap(), fetchPerformerTitleMap(p.id)]).then(function (maps) { markVideos(maps[0] || {}, maps[1] || {}); updateVideoCount(); }).catch(function () { vidLine.textContent = 'Video check failed.'; });
   }
   // Recounted on every re-check too, because single-page apps often render the video cards after the panel.
