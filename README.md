@@ -1,6 +1,8 @@
 # reptyle-stash-model-link
 
-Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.0.1**. Supported so far: Reptyle (`app.reptyle.com`); more sites follow as adapters.
+Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.1.0**. Supported so far: Reptyle (`app.reptyle.com`) and Adult Time members (`members.adulttime.com`); more sites follow as adapters.
+
+**v8.1.0** adds the Adult Time adapter: on a pornstar page (`/en/pornstar/view/<Name>/<id>`) the name comes from the URL and the panel floats at the top right; videos are matched by the Gamma scene id, which is the same on every Gamma site, so scenes Stash holds under evilangel.com, puretaboo.com, tabooheat.com and the other `/en/video/` sites count too. Its card selectors (`.ListingGrid-ListingGridItem`, `SceneThumb`) come from the members listing; the pornstar page itself was not available to test, so model-listing marks on `/en/pornstars` are a best guess. Also new: the video count follows cards that render late, and names compare without accents or punctuation.
 
 **v8.0.0** splits the script into a generic core and one adapter per site (the `SITES` array at the top of the script). The Reptyle adapter carries exactly the v7 selectors, so Reptyle behaves as before, with three deliberate changes: both add-URL buttons now ask for confirmation before writing to Stash; performers also match by alias; and the Stash scene lookup pages through all scenes of the site instead of stopping at 500. The `@name` and `@namespace` stay the same so Tampermonkey updates the installed v7 script in place.
 
@@ -14,7 +16,7 @@ Original v7 behavior: also mark in-Stash video titles green with a checkmark.
 2. Open the [raw userscript on `master`](https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js); Tampermonkey shows its install page, click **Install** (or **Update** over an earlier version).
 3. Reload the Reptyle tab. When Tampermonkey asks about cross-origin requests, review the `@connect` entries below and choose **Always allow**.
 
-Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*` (top frame only).
+Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*` and `https://members.adulttime.com/*` (top frame only).
 
 ## Updates
 
@@ -29,7 +31,7 @@ Since **v8.0.1** the script carries `@updateURL`/`@downloadURL` pointing at the 
 
 ## Adding a site
 
-Add an object to `SITES` and an `@match https://<host>/*` per host (a test checks that both agree). The fields are commented at the top of the script: page path patterns for model detail and listing pages, CSS selectors for the name, video cards and model cards, the hosts whose URLs Stash stores for that site's scenes (`sceneHosts`), and `sceneKey`/`modelKey`, which reduce a URL to the id or slug that the site's links and the URLs in Stash have in common. Members areas often use other hosts than the public URLs the Stash scrapers save, which is why the key, not the full URL, is compared. The URL patterns in the Stash community scrapers (`stash/config`, `scrapers/community/`) show which hosts and paths each network uses.
+Add an object to `SITES` and an `@match https://<host>/*` per host (a test checks that both agree). The fields are commented at the top of the script: page path patterns for model detail and listing pages, CSS selectors for the name, video cards and model cards, URL fragments that select that site's scenes in Stash (`sceneUrlParts`, a host or a path such as `/en/video/`), an `anchorSel` for the panel (empty for a floating panel), an optional `nameFromUrl`, and `sceneKey`/`modelKey`, which reduce a URL to the id or slug that the site's links and the URLs in Stash have in common. Members areas often use other hosts than the public URLs the Stash scrapers save, which is why the key, not the full URL, is compared. The URL patterns in the Stash community scrapers (`stash/config`, `scrapers/community/`) show which hosts and paths each network uses.
 ## Permissions
 
 - `@connect localhost`: GraphQL calls to `http://localhost:9999/graphql`. Tampermonkey asks once; choose **Always allow**. If your Stash runs elsewhere, change `STASH_ORIGIN` and add a matching `@connect`.
