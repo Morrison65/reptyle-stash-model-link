@@ -1,6 +1,8 @@
 # reptyle-stash-model-link
 
-Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.4.1**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.5.0**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+
+**v8.5.0**: the floating panel (Adult Time, Brazzers) moves from the top right into the shared bottom-right dock `#userscript-dock`, where the local userscripts (Colum Manager, the downloaders) stack their panels instead of overlapping; this one sits at the top of the stack. The script also sends structured logs (start, each performer lookup, add-URL results, Stash lists that start or stop failing) to the local userscript log collector on `http://localhost:7790`; see `docker-workspace/docs/userscripts.md`. When the collector is not running, up to 500 entries wait in the tab's memory and are retried with backoff.
 
 **v8.4.1**: because a performer can now come from a stored list, both add-URL buttons read the performer's current URLs from Stash right before the update and append to those (the update replaces the whole list), so URLs added elsewhere in the meantime are kept.
 
@@ -48,7 +50,7 @@ Since **v8.0.1** the script carries `@updateURL`/`@downloadURL` pointing at the 
 Add an object to `SITES` and an `@match https://<host>/*` per host (a test checks that both agree). The fields are commented at the top of the script: page path patterns for model detail and listing pages, CSS selectors for the name, video cards and model cards, URL fragments that select that site's scenes in Stash (`sceneUrlParts`, a host or a path such as `/en/video/`), an `anchorSel` for the panel (empty for a floating panel), an optional `nameFromUrl`, and `sceneKey`/`modelKey`, which reduce a URL to the id or slug that the site's links and the URLs in Stash have in common. Members areas often use other hosts than the public URLs the Stash scrapers save, which is why the key, not the full URL, is compared. The URL patterns in the Stash community scrapers (`stash/config`, `scrapers/community/`) show which hosts and paths each network uses.
 ## Permissions
 
-- `@connect localhost`: GraphQL calls to `http://localhost:9999/graphql`. Tampermonkey asks once; choose **Always allow**. If your Stash runs elsewhere, change `STASH_ORIGIN` and add a matching `@connect`.
+- `@connect localhost`: GraphQL calls to `http://localhost:9999/graphql` and log batches to the collector on `http://localhost:7790/v1/logs`. Tampermonkey asks once; choose **Always allow**. If your Stash runs elsewhere, change `STASH_ORIGIN` and add a matching `@connect`.
 - `@grant GM_xmlhttpRequest` for Stash, `GM_getValue`/`GM_setValue` to remember model pages (name and URL per site id), the panel fold state, and the shared Stash lists (`cache:v1:performers`, `cache:v1:scenes:<url part>`: ids, names, aliases, titles and URLs from your Stash, kept only in Tampermonkey's local extension storage). To clear the lists, delete those keys in the script's **Storage** tab in Tampermonkey (shown in the advanced config mode); they are refetched on the next page. Tampermonkey may ask to confirm the new grants once when it updates to 8.2.0.
 
 ## Checks

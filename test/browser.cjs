@@ -30,6 +30,8 @@ const PERFS = [
 // URLs added in Stash since the lists were read: a write must keep them.
 const LIVE_URLS = { '300': ['https://example.com/nia-live'] };
 window.GM_xmlhttpRequest = function (o) {
+  // Log batches for the local collector (docker-workspace/docs/userscripts.md) are kept for assertions.
+  if (o.url === 'http://localhost:7790/v1/logs') { (window.__sent = window.__sent || []).push(...JSON.parse(o.data).entries); setTimeout(() => o.onload({ status: 200, responseText: '{}' }), 1); return; }
   const body = JSON.parse(o.data), q = body.query, v = body.variables || {};
   let data;
   if (/performerUpdate/.test(q)) { __log.push('update:' + JSON.stringify(v.input)); data = { performerUpdate: { id: v.input.id, urls: v.input.urls } }; }
@@ -169,7 +171,14 @@ async function connect(url) {
     await wait(panel + '.includes("Found in Stash")');
     assert.match(await ev(panel), /Found in Stash: Kenzie Reeves \(id 217\)/);
     assert.match(await ev(panel), /This page URL is NOT saved/);
-    assert.equal(await ev('getComputedStyle(document.getElementById("stash-model-link-panel")).position'), 'fixed');
+    // The floating panel sits in the shared bottom-right dock, so another userscript's panel there stacks instead of overlapping.
+    assert.equal(await ev('document.getElementById("stash-model-link-panel").parentElement.id'), 'userscript-dock');
+    assert.equal(await ev('getComputedStyle(document.getElementById("userscript-dock")).position'), 'fixed');
+    assert.equal(await ev('(() => { const o = document.createElement("div"); o.id = "other-panel"; o.style.cssText = "height:120px;width:300px;order:20;pointer-events:auto;flex:none"; document.getElementById("userscript-dock").append(o); const a = document.getElementById("stash-model-link-panel").getBoundingClientRect(), b = o.getBoundingClientRect(); o.remove(); return a.bottom <= b.top || b.bottom <= a.top; })()'), true, 'docked panels overlap');
+    // Structured logs reach the collector: start, the lookup result, with page host+path only.
+    await wait('(window.__sent || []).some(e => e.event === "performer lookup")');
+    assert.ok(await ev('__sent.every(e => e.script === "reptyle-stash-model-link" && e.version && e.session && !/[?#]/.test(e.page))'));
+    assert.ok(await ev('__sent.some(e => e.event === "started" && e.data.site === "adulttime")'));
     assert.equal(await ev('!!document.getElementById("stash-model-link-heading-badge")'), false);
     assert.deepEqual(await ev('__log.filter(x=>x.startsWith("scenes:/en"))'), ['scenes:/en/video/:1']);
     await wait(panel + '.includes("Videos on this page in Stash: 2/3")');

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reptyle Stash Model Link
 // @namespace    local.reptyle-stash-model-link
-// @version      8.4.1
+// @version      8.5.0
 // @description  Shows the Stash performer match on model pages of supported sites (one adapter per site, Reptyle first), with an add-URL button and Stash link, and marks models and videos already in Stash on listings.
 // @match        https://app.reptyle.com/*
 // @match        https://members.adulttime.com/*
@@ -20,7 +20,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '8.4.1';
+  const VERSION = '8.5.0';
   // One adapter per site or network: everything page-specific lives here, the core below is generic.
   // hosts: page hosts the adapter runs on (each needs an @match). detail/listing: model page paths.
   // anchorSel: the panel goes after it; empty means a floating panel. nameFromUrl (optional): model name from a path, tried first.
@@ -105,13 +105,83 @@
     modelUrl: function (origin, key, href) { var u = new URL(href, origin); return u.origin + u.pathname.replace(/\/+$/, ''); },
     performerUrlParts: function (id) { return ['brazzers.com/model/' + id + '/', 'brazzers.com/pornstar/' + id + '/', 'brazzersnetwork.com/pornstar/' + id + '/']; }
   }];
+  // Structured log sink shared by the local userscripts (docker-workspace/docs/userscripts.md): entries are batched to
+  // the collector on localhost:7790 through GM_xmlhttpRequest. The buffer is memory-only; while the collector is down
+  // up to 500 entries wait and are retried with backoff.
+  var LOG_URL = 'http://localhost:7790/v1/logs';
+  function logPage(href) { try { var u = new URL(href); return u.host + u.pathname; } catch (e) { return ''; } }
+  function gmLogSend(entries, done) {
+    if (typeof GM_xmlhttpRequest !== 'function') { done(true); return; }
+    try {
+      GM_xmlhttpRequest({
+        method: 'POST', url: LOG_URL, timeout: 5000, data: JSON.stringify({ entries: entries }),
+        headers: { 'Content-Type': 'application/json', 'X-Userscript-Log': '1' },
+        // A rejected batch (4xx) is dropped; only an unreachable or busy collector is retried.
+        onload: function (r) { done(r.status < 500 && r.status !== 408 && r.status !== 429); },
+        onerror: function () { done(false); }, ontimeout: function () { done(false); }
+      });
+    } catch (e) { done(false); }
+  }
+  function createLogSink(opts) {
+    var send = opts.send || gmLogSend, page = opts.page || function () { return logPage(location.href); };
+    var session = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    var queue = [], seq = 0, timer = 0, busy = false, failures = 0;
+    function schedule(ms) { if (!timer) timer = setTimeout(flush, ms); }
+    function flush() {
+      if (timer) { clearTimeout(timer); timer = 0; }
+      if (busy || !queue.length) return;
+      var batch = queue.splice(0, 200);
+      busy = true;
+      send(batch, function (ok) {
+        busy = false;
+        if (ok) { failures = 0; if (queue.length) schedule(0); return; }
+        queue = batch.concat(queue).slice(-500);
+        failures++;
+        schedule(Math.min(300000, 5000 * Math.pow(2, failures - 1)));
+      });
+    }
+    function log(level, event, msg, data) {
+      var entry = { ts: new Date().toISOString(), script: opts.script, version: opts.version, level: level, event: String(event), page: page(), session: session, seq: ++seq };
+      if (msg !== undefined && msg !== null && msg !== '') entry.msg = String(msg);
+      if (data !== undefined) entry.data = data;
+      queue.push(entry);
+      if (queue.length > 500) queue.splice(0, queue.length - 500);
+      // A full batch goes at once, except while backing off from a down collector.
+      if (queue.length >= 50 && !failures) flush(); else schedule(2000);
+    }
+    return { log: log, flush: flush, session: session, pending: function () { return queue.length; } };
+  }
+  // Shared bottom-right dock (docker-workspace/docs/userscripts.md): the local userscripts stack their floating panels in
+  // one #userscript-dock instead of overlapping. CSS order sorts them, lowest next to the corner, so injection order does not
+  // matter; column-reverse makes an overflowing dock scroll from the bottom, so the panels next to the corner stay visible.
+  var DOCK_CSS = 'position:fixed!important;right:0!important;bottom:0!important;left:auto!important;top:auto!important;z-index:2147483647!important;display:flex!important;flex-direction:column-reverse!important;align-items:flex-end!important;gap:8px!important;box-sizing:border-box!important;padding:12px!important;margin:0!important;max-height:100vh!important;max-width:100vw!important;overflow-y:auto!important;overscroll-behavior:contain!important;pointer-events:none!important;background:none!important;border:0!important;';
+  function dockPanel(el, order) {
+    var dock = document.getElementById('userscript-dock');
+    if (!dock) { dock = document.createElement('div'); dock.id = 'userscript-dock'; dock.style.cssText = DOCK_CSS; }
+    if (!dock.isConnected) (document.body || document.documentElement).appendChild(dock);
+    el.style.setProperty('order', String(order), 'important');
+    el.style.setProperty('pointer-events', 'auto', 'important');
+    el.style.setProperty('flex', 'none', 'important');
+    if (el.parentElement !== dock) dock.appendChild(el);
+    return dock;
+  }
   // Node unit tests load the pure helpers only (function declarations are hoisted); nothing else touches the page.
   if (typeof module === 'object' && module.exports) {
-    module.exports = { VERSION: VERSION, SITES: SITES, siteFor: siteFor, cachedList: cachedList, normUrl: normUrl, normTitle: normTitle, normName: normName, extractMovieId: extractMovieId, extractModelId: extractModelId, extractGammaSceneId: extractGammaSceneId, extractGammaActorId: extractGammaActorId, gammaNameFromUrl: gammaNameFromUrl, ayloId: ayloId, ayloNameFromUrl: ayloNameFromUrl, modelIdFromParam: modelIdFromParam, modelNameFromParam: modelNameFromParam };
+    module.exports = { logPage: logPage, createLogSink: createLogSink, VERSION: VERSION, SITES: SITES, siteFor: siteFor, cachedList: cachedList, normUrl: normUrl, normTitle: normTitle, normName: normName, extractMovieId: extractMovieId, extractModelId: extractModelId, extractGammaSceneId: extractGammaSceneId, extractGammaActorId: extractGammaActorId, gammaNameFromUrl: gammaNameFromUrl, ayloId: ayloId, ayloNameFromUrl: ayloNameFromUrl, modelIdFromParam: modelIdFromParam, modelNameFromParam: modelNameFromParam };
     return;
   }
   var site = siteFor(location.hostname);
   if (!site) return;
+  var sink = createLogSink({ script: 'reptyle-stash-model-link', version: VERSION });
+  var log = sink.log;
+  window.addEventListener('pagehide', function () { sink.flush(); });
+  log('info', 'started', '', { site: site.id });
+  // Background list refreshes run every two seconds: log only when one starts or stops failing.
+  var listFailing = {};
+  function listResult(name) {
+    return [function () { if (listFailing[name]) { listFailing[name] = false; log('info', 'stash list recovered', '', { list: name }); } },
+      function (e) { if (!listFailing[name]) { listFailing[name] = true; log('warn', 'stash list failed', e && e.message, { list: name }); } }];
+  }
   var STASH_ORIGIN = 'http://localhost:9999';
   var ENDPOINT = STASH_ORIGIN + '/graphql';
   var PANEL_ID = 'stash-model-link-panel';
@@ -269,14 +339,13 @@
   function findAnchor() { return site.anchorSel ? (q(site.anchorSel) || q(site.headingFallbackSel)) : null; }
   function removePanel() { var old = document.getElementById(PANEL_ID); if (old) old.remove(); }
   function stylePanel(el) { el.style.cssText = 'margin:10px 0;padding:10px 12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:10px;font-size:13px;line-height:1.55;max-width:680px;font-family:system-ui,sans-serif;'; }
-  // After the anchor, or floating top right when the adapter has none.
-  // After the anchor, or floating top right when the adapter has none. A floating panel stays small: capped height,
-  // and a toggle that folds it to its marked summary lines (remembered across pages).
+  // After the anchor, or floating in the shared bottom-right dock when the adapter has none. A floating panel stays
+  // small: capped height, and a toggle that folds it to its marked summary lines (remembered across pages).
   function panelCollapsed() { try { return !!GM_getValue('panelCollapsed', false); } catch (e) { return false; } }
   function applyCollapsed(div) { var c = panelCollapsed(); var kids = div.children; for (var i = 1; i < kids.length; i++) { if (kids[i].hasAttribute('data-sml-toggle')) continue; kids[i].style.display = c && !kids[i].hasAttribute('data-sml-keep') ? 'none' : ''; } var t = div.querySelector('[data-sml-toggle]'); if (t) { t.textContent = c ? '+' : '\u2013'; t.title = c ? 'Show details' : 'Fold to summary'; t.setAttribute('aria-expanded', c ? 'false' : 'true'); } }
   function placePanel(anchor, div) {
     if (anchor) { anchor.insertAdjacentElement('afterend', div); return; }
-    div.style.position = 'fixed'; div.style.top = '70px'; div.style.right = '16px'; div.style.zIndex = '2147483000'; div.style.maxWidth = '340px'; div.style.maxHeight = 'calc(100vh - 100px)'; div.style.overflowY = 'auto'; div.style.overscrollBehavior = 'contain'; div.style.margin = '0'; div.style.fontSize = '12px'; div.style.boxShadow = '0 4px 16px rgba(0,0,0,.5)';
+    div.style.position = 'relative'; div.style.maxWidth = '340px'; div.style.maxHeight = 'calc(100vh - 100px)'; div.style.overflowY = 'auto'; div.style.overscrollBehavior = 'contain'; div.style.margin = '0'; div.style.fontSize = '12px'; div.style.boxShadow = '0 4px 16px rgba(0,0,0,.5)';
     var t = document.createElement('button');
     t.type = 'button';
     t.setAttribute('data-sml-toggle', '1');
@@ -284,7 +353,7 @@
     t.addEventListener('click', function () { try { GM_setValue('panelCollapsed', !panelCollapsed()); } catch (e) {} applyCollapsed(div); });
     div.style.paddingRight = '34px';
     div.appendChild(t);
-    document.body.appendChild(div);
+    dockPanel(div, 30);
     applyCollapsed(div);
   }
   function renderLoading(anchor, name) {
@@ -376,7 +445,7 @@
       btn.addEventListener('click', function () {
         btn.disabled = true;
         btn.textContent = 'Adding...';
-        addPerformerUrl(p, state.pageUrl).then(function (next) { if (next) run(true); else { btn.disabled = false; btn.textContent = 'Add this URL in Stash'; } }).catch(function (e) { btn.disabled = false; btn.textContent = 'Add this URL in Stash'; alert('Stash update failed: ' + e.message); });
+        addPerformerUrl(p, state.pageUrl).then(function (next) { if (next) { log('info', 'performer url added', '', { performerId: p.id }); run(true); } else { btn.disabled = false; btn.textContent = 'Add this URL in Stash'; } }).catch(function (e) { log('error', 'performer url add failed', e.message, { performerId: p.id }); btn.disabled = false; btn.textContent = 'Add this URL in Stash'; alert('Stash update failed: ' + e.message); });
       });
       row.appendChild(btn);
     }
@@ -385,7 +454,7 @@
     performerFound = true;
     vidLine.setAttribute('data-sml-video-count', '1');
     vidLine.setAttribute('data-sml-keep', '1');
-    Promise.all([ensureSceneMap(), fetchPerformerTitleMap(p.id)]).then(function (maps) { markVideos(maps[0] || {}, maps[1] || {}); updateVideoCount(); }).catch(function () { vidLine.textContent = 'Video check failed.'; });
+    Promise.all([ensureSceneMap(), fetchPerformerTitleMap(p.id)]).then(function (maps) { markVideos(maps[0] || {}, maps[1] || {}); updateVideoCount(); }).catch(function (e) { log('warn', 'video check failed', e && e.message, { performerId: p.id }); vidLine.textContent = 'Video check failed.'; });
   }
   // Recounted on every re-check too, because single-page apps often render the video cards after the panel.
   function updateVideoCount() { var vidLine = document.querySelector('#' + PANEL_ID + ' [data-sml-video-count]'); if (!vidLine) return; var urlMap = sceneMapCache || {}, titleMap = performerTitleMapCache; var cards = videoCards(); var total = 0, hit = 0; for (var k = 0; k < cards.length; k++) { var la = cards[k].querySelector(site.videoLinkSel); if (!la) continue; var mid = site.sceneKey(la.getAttribute('href') || la.href); if (!mid && !cardTitleForCard(cards[k])) continue; total++; if (matchSceneForCard(cards[k], urlMap, titleMap)) hit++; } vidLine.textContent = total ? ('Videos on this page in Stash: ' + hit + '/' + total) : 'No videos found on this page.'; vidLine.style.color = hit ? '#86efac' : '#94a3b8'; }
@@ -439,9 +508,11 @@
       // Names first, then aliases, so a performer called exactly this wins over one that only lists it as an alias.
       for (var i = 0; i < fp.performers.length && !exact && name; i++) { if (normName(fp.performers[i].name) === normName(name)) exact = fp.performers[i]; }
       for (var j = 0; j < fp.performers.length && !exact && name; j++) { if (performerNames(fp.performers[j]).some(function (n) { return normName(n) === normName(name); })) exact = fp.performers[j]; }
+      log('info', 'performer lookup', '', { found: !!exact, performerId: exact ? exact.id : undefined, byId: !!fp.byId, hits: fp.count, modelId: modelId || undefined });
       var a2 = findAnchor();
       if (a2 || !site.anchorSel) render(a2, { name: label, pageUrl: pageUrl, count: fp.count, exact: exact, candidates: fp.performers.slice(0, 5) });
     }).catch(function (e) {
+      log('warn', 'stash unreachable', e.message, { view: 'model' });
       var a3 = findAnchor();
       if (a3 || !site.anchorSel) render(a3, { name: label, pageUrl: pageUrl, error: e.message });
     });
@@ -450,7 +521,8 @@
   var tries = 0;
   var boot = setInterval(function () { tries++; if (findAnchor() || !site.anchorSel || q(site.modelEntrySel)) { clearInterval(boot); run(true); } else if (tries > 40) clearInterval(boot); }, 500);
   // Every page: use the stored Stash lists at once (refetched when older than 10 minutes), then re-check marks every two seconds.
-  ensureSceneMap().catch(function () {});
-  fetchPerformerMap().catch(function () {});
-  setInterval(function () { ensureSceneMap().catch(function () {}); fetchPerformerMap().catch(function () {}); try { if (sceneMapCache) { markVideos(sceneMapCache, performerFound ? performerTitleMapCache : null); updateVideoCount(); } } catch (e) {} try { if (performerMapCache) { if (site.listing.test(location.pathname)) markModelCards(performerMapCache); else markModelLinks(); } } catch (e2) {} run(false); }, 2000);
+  var scenesResult = listResult('scenes'), performersResult = listResult('performers');
+  function refreshLists() { ensureSceneMap().then(scenesResult[0], scenesResult[1]); fetchPerformerMap().then(performersResult[0], performersResult[1]); }
+  refreshLists();
+  setInterval(function () { refreshLists(); try { if (sceneMapCache) { markVideos(sceneMapCache, performerFound ? performerTitleMapCache : null); updateVideoCount(); } } catch (e) {} try { if (performerMapCache) { if (site.listing.test(location.pathname)) markModelCards(performerMapCache); else markModelLinks(); } } catch (e2) {} run(false); }, 2000);
 })();
