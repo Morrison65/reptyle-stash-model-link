@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reptyle Stash Model Link
 // @namespace    local.reptyle-stash-model-link
-// @version      8.2.1
+// @version      8.3.0
 // @description  Shows the Stash performer match on model pages of supported sites (one adapter per site, Reptyle first), with an add-URL button and Stash link, and marks models and videos already in Stash on listings.
 // @match        https://app.reptyle.com/*
 // @match        https://members.adulttime.com/*
@@ -20,7 +20,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '8.2.1';
+  const VERSION = '8.3.0';
   // One adapter per site or network: everything page-specific lives here, the core below is generic.
   // hosts: page hosts the adapter runs on (each needs an @match). detail/listing: model page paths.
   // anchorSel: the panel goes after it; empty means a floating panel. nameFromUrl (optional): model name from a path, tried first.
@@ -29,6 +29,7 @@
   // modelParam / modelNameParam (optional): a query parameter that filters a page to one model by id (?models=<id>) or by name;
   // such a page counts as that model's page.
   // performerUrlParts(id) (optional): URL fragments that find the performer in Stash by the site's model id, before any name search.
+  // performerUrlRe (optional): which saved performer URLs carry this site's model ids (modelKey is applied only to those).
   // sceneUrlParts: URL fragments that select this site's scenes in Stash; sceneKey/modelKey reduce a URL to the id both sides share.
   var SITES = [{
     id: 'reptyle',
@@ -49,7 +50,8 @@
     sceneUrlParts: ['app.reptyle.com'],
     sceneKey: extractMovieId,
     modelKey: extractModelId,
-    modelUrl: function (origin, key) { return origin + '/models/' + key; }
+    modelUrl: function (origin, key) { return origin + '/models/' + key; },
+    performerUrlRe: /^https?:\/\/app\.reptyle\.com\//i
   }, {
     // Gamma network members area. A scene keeps its numeric id on every Gamma site (adulttime, evilangel, puretaboo ...),
     // so all /en/video/ URLs in Stash count. The members DOM is only partly known: the name comes from the URL,
@@ -75,7 +77,9 @@
     sceneUrlParts: ['/en/video/'],
     sceneKey: extractGammaSceneId,
     modelKey: extractGammaActorId,
-    modelUrl: function (origin, key, href) { var u = new URL(href, origin); return u.origin + u.pathname.replace(/\/+$/, ''); }
+    modelUrl: function (origin, key, href) { var u = new URL(href, origin); return u.origin + u.pathname.replace(/\/+$/, ''); },
+    // Gamma actor ids differ between Gamma sites, so only Adult Time's own URLs count.
+    performerUrlRe: /^https?:\/\/(?:[a-z0-9-]+\.)?adulttime\.com\//i
   }, {
     // Aylo members area. Members links are /scene/<id>/<slug> and /model/<id>/<slug>; Stash mostly holds the tour URLs
     // brazzers.com/video/<id>/<slug> and brazzers.com/pornstar/<id>/<slug>, with the same ids. Classes are build hashes,
@@ -123,6 +127,10 @@
   var performerFound = false;
   var performerMapCache = null;
   var performerMapPromise = null;
+  var performerKeyMapCache = null;
+  var sceneMapPromise = null;
+  var sceneMapAt = 0;
+  var MODEL_LINK_CHECK = 'data-sml-model-check';
   function siteFor(host) { host = String(host || '').toLowerCase(); for (var i = 0; i < SITES.length; i++) { for (var j = 0; j < SITES[i].hosts.length; j++) { var h = SITES[i].hosts[j]; if (host === h || host.slice(-h.length - 1) === '.' + h) return SITES[i]; } } return null; }
   function extractGammaSceneId(href) { var m = String(href || '').match(/\/[a-z]{2}\/video\/(?:[^/?#]+\/)*?(\d+)\/?(?:[?#]|$)/i); return m ? m[1] : null; }
   function extractGammaActorId(href) { var m = String(href || '').match(/\/pornstar\/(?:view\/)?[^/?#]+\/(\d+)\/?(?:[?#]|$)/i); return m ? m[1] : null; }
@@ -179,13 +187,12 @@
     if (!confirm('Add this URL to "' + p.name + '" (Stash id ' + p.id + ')?\n\n' + url)) return Promise.resolve(null);
     var next = (p.urls || []).slice();
     next.push(url);
-    return gql('mutation($input:PerformerUpdateInput!){ performerUpdate(input:$input){ id urls } }', { input: { id: p.id, urls: next } }).then(function () { return next; });
+    return gql('mutation($input:PerformerUpdateInput!){ performerUpdate(input:$input){ id urls } }', { input: { id: p.id, urls: next } }).then(function () { var k = site.modelKey(url); if (k && performerKeyMapCache) performerKeyMapCache[k] = p; return next; });
   }
   function resetHeading() { var b = document.getElementById(HEADING_BADGE_ID); if (!b) return; var h = b.parentElement; b.remove(); if (!h) return; if (headingOrigColor) h.style.color = headingOrigColor; else h.style.color = ''; h.style.fontWeight = ''; }
   // Only a heading that shows this model's name is coloured, so a generic page heading stays untouched.
   function highlightHeading(name) { var h = headingEl(); if (!h || normName(headingText(h)) !== normName(name)) return; if (!headingOrigColor && !h.style.color) headingOrigColor = getComputedStyle(h).color; h.style.color = '#22c55e'; h.style.fontWeight = '700'; if (!document.getElementById(HEADING_BADGE_ID)) { var b = document.createElement('span'); b.id = HEADING_BADGE_ID; b.textContent = ' \u2611'; b.style.cssText = 'color:#22c55e;font-weight:800;margin-left:6px;'; h.appendChild(b); } }
   function extractMovieId(href) { var m = String(href || '').match(/\/movies\/(\d+)/); return m ? m[1] : null; }
-  function clearVideoMarks() { var els = document.querySelectorAll('.' + VIDEO_BADGE_CLASS); for (var ci = 0; ci < els.length; ci++) els[ci].remove(); var marked = document.querySelectorAll('[data-sml-video-green="1"]'); for (var cj = 0; cj < marked.length; cj++) { var m = marked[cj]; var chk = m.querySelector('[data-sml-video-check]'); if (chk) chk.remove(); m.style.color = ''; m.style.fontWeight = ''; m.removeAttribute('data-sml-video-green'); m.removeAttribute('title'); } }
   function normTitle(s) { return String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019\u201c\u201d]/g, "'").replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim(); }
   // Outermost elements matching videoCardSel that link exactly one scene, so nested matches and whole lists are skipped.
   function keyCount(el, linkSel, keyFn) { var keys = {}, n = 0; var ls = el ? el.querySelectorAll(linkSel) : []; for (var i = 0; i < ls.length; i++) { var k = keyFn(ls[i].getAttribute('href') || ls[i].href); if (k && !keys[k]) { keys[k] = 1; n++; } } return n; }
@@ -196,10 +203,15 @@
   function matchSceneForCard(card, urlMap, titleMap) { var as = card.querySelectorAll(site.videoLinkSel), id = null; for (var ai = 0; ai < as.length && !id; ai++) id = site.sceneKey(as[ai].getAttribute('href') || as[ai].href); if (!as.length) return null; if (id && urlMap && urlMap[id]) return urlMap[id]; if (titleMap) { var nt = normTitle(cardTitleForCard(card)); if (nt && titleMap[nt]) return titleMap[nt]; } return null; }
   function fetchScenesForUrlPart(part) { return (function next(page, acc) { return gql('query($h:String!,$p:Int!){ findScenes(scene_filter:{url:{value:$h, modifier:INCLUDES}}, filter:{per_page:500, page:$p}){ scenes{ id title urls } } }', { h: part, p: page }).then(function (data) { var ss = (data && data.findScenes && data.findScenes.scenes) || []; var all = acc.concat(ss); return (ss.length < 500 || page >= 20) ? all : next(page + 1, all); }); })(1, []); }
   function fetchSceneMap() { return Promise.all(site.sceneUrlParts.map(fetchScenesForUrlPart)).then(function (lists) { var map = {}; for (var l = 0; l < lists.length; l++) { var scenes = lists[l]; for (var i = 0; i < scenes.length; i++) { var s = scenes[i]; for (var j = 0; j < ((s.urls) || []).length; j++) { var id = site.sceneKey(s.urls[j]); if (id && !map[id]) map[id] = s; } } } sceneMapCache = map; return map; }); }
+  // Loaded once per page and kept for 10 minutes; after a failure the next try waits a minute.
+  function ensureSceneMap() { if (sceneMapPromise && Date.now() - sceneMapAt < 600000) return sceneMapPromise; sceneMapAt = Date.now(); sceneMapPromise = fetchSceneMap().catch(function (e) { sceneMapAt = Date.now() - 540000; throw e; }); return sceneMapPromise; }
   function fetchPerformerTitleMap(pid) { if (performerTitleMapCache && performerTitleMapFor === String(pid)) return Promise.resolve(performerTitleMapCache); var num = parseInt(pid, 10); return gql('query{ findScenes(scene_filter:{performers:{value:[' + num + '], modifier:INCLUDES}}, filter:{per_page:200}){ count scenes{ id title urls } } }').then(function (data) { var map = {}; var scenes = ((data && data.findScenes && data.findScenes.scenes) || []); for (var i = 0; i < scenes.length; i++) { var k = normTitle(scenes[i].title); if (k && !map[k]) map[k] = scenes[i]; } performerTitleMapCache = map; performerTitleMapFor = String(pid); return map; }); }
   function titleLinkForCard(card) { if (site.videoTitleSel) return card.querySelector(site.videoTitleSel); var links = card.querySelectorAll(site.videoLinkSel); for (var li = 0; li < links.length; li++) { if ((links[li].innerText || '').trim()) return links[li]; } return null; }
   function styleVideoTitle(card, hit) { var link = titleLinkForCard(card); if (!link) return; var t = link.querySelector('span') || link; if (t.getAttribute && t.getAttribute('data-sml-video-green') === '1') return; t.style.color = '#22c55e'; t.style.fontWeight = '700'; t.setAttribute('data-sml-video-green', '1'); try { t.title = (hit.title || '') + ' (Stash id ' + hit.id + ')'; } catch (e) {} var chk = document.createElement('span'); chk.setAttribute('data-sml-video-check', '1'); chk.textContent = '\u2713 '; chk.style.cssText = 'color:#22c55e;font-weight:800;'; try { t.insertBefore(chk, t.firstChild); } catch (e2) {} }
-  function markVideos(urlMap, titleMap) { var um = urlMap || sceneMapCache || {}; var tm = (typeof titleMap === 'undefined') ? performerTitleMapCache : titleMap; var cards = videoCards(); for (var i = 0; i < cards.length; i++) { var card = cards[i]; var hit = matchSceneForCard(card, um, tm); if (!hit) continue; if (!card.querySelector('.' + VIDEO_BADGE_CLASS)) { try { if (getComputedStyle(card).position === 'static') card.style.position = 'relative'; } catch (e) {} var b = document.createElement('a'); b.className = VIDEO_BADGE_CLASS; b.textContent = '\u2713 IN STASH'; b.href = STASH_ORIGIN + '/scenes/' + hit.id; b.target = '_blank'; b.rel = 'noopener'; b.title = (hit.title || '') + ' (Stash id ' + hit.id + ')'; b.style.cssText = 'position:absolute;top:6px;left:6px;z-index:5;background:#16a34a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.4);'; card.appendChild(b); } try { styleVideoTitle(card, hit); } catch (e2) {} } }
+  function unmarkVideoCard(card) { var b = card.querySelector('.' + VIDEO_BADGE_CLASS); if (b) b.remove(); var marked = card.querySelectorAll('[data-sml-video-green="1"]'); for (var cj = 0; cj < marked.length; cj++) { var m = marked[cj]; var chk = m.querySelector('[data-sml-video-check]'); if (chk) chk.remove(); m.style.color = ''; m.style.fontWeight = ''; m.removeAttribute('data-sml-video-green'); m.removeAttribute('title'); } }
+  // Runs on every page and every re-check: marks cards whose scene is in Stash and drops marks that no longer fit
+  // (single-page apps reuse card elements for other scenes). Titles only count when a performer's scenes are given.
+  function markVideos(urlMap, titleMap) { var cards = videoCards(); for (var i = 0; i < cards.length; i++) { var card = cards[i]; var hit = matchSceneForCard(card, urlMap || {}, titleMap || null); var old = card.querySelector('.' + VIDEO_BADGE_CLASS); if (old && (!hit || old.getAttribute('data-sml-key') !== String(hit.id))) { unmarkVideoCard(card); old = null; } if (!hit) continue; if (!old) { try { if (getComputedStyle(card).position === 'static') card.style.position = 'relative'; } catch (e) {} var b = document.createElement('a'); b.className = VIDEO_BADGE_CLASS; b.setAttribute('data-sml-key', String(hit.id)); b.textContent = '\u2713 IN STASH'; b.href = STASH_ORIGIN + '/scenes/' + hit.id; b.target = '_blank'; b.rel = 'noopener'; b.title = (hit.title || '') + ' (Stash id ' + hit.id + ')'; b.style.cssText = 'position:absolute;top:6px;left:6px;z-index:5;background:#16a34a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.4);'; b.addEventListener('click', function (ev) { ev.stopPropagation(); }); card.appendChild(b); } try { styleVideoTitle(card, hit); } catch (e2) {} } }
   function extractModelId(href) { var m = String(href || '').match(/\/models\/(\d+)/); return m ? m[1] : null; }
   function modelCardForLink(a) { if (!site.modelCardSel) return structuralCard(a, site.modelLinkSel, site.modelKey) || a; try { var card = a.closest(site.modelCardSel); if (card) return card; } catch (e) {} var el = a; for (var mi = 0; mi < 4 && el; mi++) { el = el.parentElement; if (el && el.matches && site.modelEntrySel && el.matches(site.modelEntrySel)) return el; } return a.parentElement || a; }
   function modelNameEl(card) { return (site.modelNameSel && card.querySelector(site.modelNameSel)) || card.querySelector('span'); }
@@ -207,12 +219,17 @@
   // Names compare like titles: case, accents and punctuation do not count ("Anna-Belle" = "anna belle").
   function normName(s) { return normTitle(s); }
   function performerNames(p) { return [p.name].concat(p.alias_list || []); }
-  function fetchPerformerMap() { if (performerMapCache) return Promise.resolve(performerMapCache); if (performerMapPromise) return performerMapPromise; performerMapPromise = (function next(page, acc) { return gql('query($p:Int!){ findPerformers(filter:{per_page:500, page:$p}){ count performers{ id name alias_list urls } } }', { p: page }).then(function (data) { var ps = (data && data.findPerformers && data.findPerformers.performers) || []; var all = acc.concat(ps); if (ps.length < 500 || page >= 10) { var map = {}; for (var i = 0; i < all.length; i++) { var k = normName(all[i].name); if (k && !map[k]) map[k] = all[i]; } for (var ai = 0; ai < all.length; ai++) { var al = all[ai].alias_list || []; for (var aj = 0; aj < al.length; aj++) { var ak = normName(al[aj]); if (ak && !map[ak]) map[ak] = all[ai]; } } performerMapCache = map; return map; } return next(page + 1, all); }); })(1, []); return performerMapPromise; }
+  function fetchPerformerMap() { if (performerMapCache) return Promise.resolve(performerMapCache); if (performerMapPromise) return performerMapPromise; performerMapPromise = (function next(page, acc) { return gql('query($p:Int!){ findPerformers(filter:{per_page:500, page:$p}){ count performers{ id name alias_list urls } } }', { p: page }).then(function (data) { var ps = (data && data.findPerformers && data.findPerformers.performers) || []; var all = acc.concat(ps); if (ps.length < 500 || page >= 10) { var map = {}; for (var i = 0; i < all.length; i++) { var k = normName(all[i].name); if (k && !map[k]) map[k] = all[i]; } for (var ai = 0; ai < all.length; ai++) { var al = all[ai].alias_list || []; for (var aj = 0; aj < al.length; aj++) { var ak = normName(al[aj]); if (ak && !map[ak]) map[ak] = all[ai]; } } var keys = {}; for (var ki = 0; ki < all.length; ki++) { var us = all[ki].urls || []; for (var kj = 0; kj < us.length; kj++) { if (site.performerUrlRe && !site.performerUrlRe.test(us[kj])) continue; var kk = site.modelKey(us[kj]); if (kk && !keys[kk]) keys[kk] = all[ki]; } } performerKeyMapCache = keys; performerMapCache = map; return map; } return next(page + 1, all); }); })(1, []).catch(function (e) { setTimeout(function () { performerMapPromise = null; }, 60000); throw e; }); return performerMapPromise; }
   function clearModelMarks() { var els = document.querySelectorAll('.' + MODEL_BADGE_CLASS + ', .' + MODEL_ADD_CLASS); for (var ci2 = 0; ci2 < els.length; ci2++) els[ci2].remove(); var names = document.querySelectorAll('[data-sml-name-green="1"]'); for (var cj = 0; cj < names.length; cj++) { names[cj].style.color = ''; names[cj].style.fontWeight = ''; names[cj].removeAttribute('data-sml-name-green'); } }
   // The handlers below only read pageUrl synchronously and performerMapCache at click time (the shared cache), so the loop closures are safe.
   // eslint-disable-next-line no-loop-func
-  function markModelCards(map) { var links = document.querySelectorAll(site.modelLinkSel); for (var i = 0; i < links.length; i++) { var a = links[i]; var href = a.getAttribute('href') || a.href || ''; var rid = site.modelKey(href); if (!rid) continue; var card = modelCardForLink(a); if (!card || card.querySelector(':scope > .' + MODEL_BADGE_CLASS)) continue; var name = modelNameForLink(a, card); if (!name) continue; var hit = map[normName(name)]; if (!hit) continue; try { if (getComputedStyle(card).position === 'static') card.style.position = 'relative'; } catch (e) {} var pageUrl = site.modelUrl(location.origin, rid, href); var hasUrl = (hit.urls || []).some(function (u) { return normUrl(u).toLowerCase() === normUrl(pageUrl).toLowerCase(); }); var b = document.createElement('a'); b.className = MODEL_BADGE_CLASS; b.textContent = '\u2713 IN STASH'; b.href = STASH_ORIGIN + '/performers/' + hit.id; b.target = '_blank'; b.rel = 'noopener'; b.title = hit.name + ' (Stash id ' + hit.id + ')'; b.style.cssText = 'position:absolute;top:6px;left:6px;z-index:5;background:#16a34a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.4);'; b.addEventListener('click', function (ev) { ev.stopPropagation(); }); card.appendChild(b); var ns = modelNameEl(card); if (ns && !ns.getAttribute('data-sml-name-green')) { ns.style.color = '#22c55e'; ns.style.fontWeight = '700'; ns.setAttribute('data-sml-name-green', '1'); } if (!hasUrl && !card.querySelector(':scope > .' + MODEL_ADD_CLASS)) { (function (h, url, c2) { var add = document.createElement('button'); add.className = MODEL_ADD_CLASS; add.textContent = '+ URL'; add.title = 'Save ' + url + ' on ' + h.name + ' in Stash'; add.style.cssText = 'position:absolute;top:6px;right:6px;z-index:5;background:#b45309;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;border:none;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);'; add.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); add.disabled = true; add.textContent = '...'; addPerformerUrl(h, url).then(function (nxt) { if (!nxt) { add.disabled = false; add.textContent = '+ URL'; return; } add.remove(); h.urls = nxt; }).catch(function (err) { add.disabled = false; add.textContent = '+ URL'; alert('Stash update failed: ' + err.message); }); }); c2.appendChild(add); })(hit, pageUrl, card); } } }
-  function runListing(force) { if (!force && location.pathname === lastPath && performerMapCache) { try { markModelCards(performerMapCache); } catch (e) {} return; } lastPath = location.pathname; removePanel(); resetHeading(); clearVideoMarks(); performerFound = false; fetchPerformerMap().then(function (map) { markModelCards(map); }).catch(function () {}); }
+  function markModelCards(map) { var links = document.querySelectorAll(site.modelLinkSel); for (var i = 0; i < links.length; i++) { var a = links[i]; var href = a.getAttribute('href') || a.href || ''; var rid = site.modelKey(href); if (!rid) continue; var card = modelCardForLink(a); if (!card || card.querySelector(':scope > .' + MODEL_BADGE_CLASS)) continue; var name = modelNameForLink(a, card); var hit = (performerKeyMapCache && performerKeyMapCache[rid]) || (name ? map[normName(name)] : null); if (!hit) continue; try { if (getComputedStyle(card).position === 'static') card.style.position = 'relative'; } catch (e) {} var pageUrl = site.modelUrl(location.origin, rid, href); var hasUrl = (hit.urls || []).some(function (u) { return normUrl(u).toLowerCase() === normUrl(pageUrl).toLowerCase(); }); var b = document.createElement('a'); b.className = MODEL_BADGE_CLASS; b.textContent = '\u2713 IN STASH'; b.href = STASH_ORIGIN + '/performers/' + hit.id; b.target = '_blank'; b.rel = 'noopener'; b.title = hit.name + ' (Stash id ' + hit.id + ')'; b.style.cssText = 'position:absolute;top:6px;left:6px;z-index:5;background:#16a34a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.4);'; b.addEventListener('click', function (ev) { ev.stopPropagation(); }); card.appendChild(b); var ns = modelNameEl(card); if (ns && !ns.getAttribute('data-sml-name-green')) { ns.style.color = '#22c55e'; ns.style.fontWeight = '700'; ns.setAttribute('data-sml-name-green', '1'); } if (!hasUrl && !card.querySelector(':scope > .' + MODEL_ADD_CLASS)) { (function (h, url, c2) { var add = document.createElement('button'); add.className = MODEL_ADD_CLASS; add.textContent = '+ URL'; add.title = 'Save ' + url + ' on ' + h.name + ' in Stash'; add.style.cssText = 'position:absolute;top:6px;right:6px;z-index:5;background:#b45309;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;border:none;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);'; add.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); add.disabled = true; add.textContent = '...'; addPerformerUrl(h, url).then(function (nxt) { if (!nxt) { add.disabled = false; add.textContent = '+ URL'; return; } add.remove(); h.urls = nxt; }).catch(function (err) { add.disabled = false; add.textContent = '+ URL'; alert('Stash update failed: ' + err.message); }); }); c2.appendChild(add); })(hit, pageUrl, card); } } }
+  function performerForLink(a, href) { var key = site.modelKey(href); if (!key) return null; var hit = performerKeyMapCache && performerKeyMapCache[key]; if (hit) return hit; var n = site.nameFromUrl ? site.nameFromUrl(href) : ''; if (!n) { n = (a.innerText || '').trim(); if (n.length > 80) n = ''; } return n ? (performerMapCache[normName(n)] || null) : null; }
+  function unmarkModelLink(a) { var c = a.querySelector('[' + MODEL_LINK_CHECK + ']'); if (c) c.remove(); a.style.color = ''; a.style.fontWeight = ''; a.title = a.getAttribute('data-sml-prev-title') || ''; a.removeAttribute('data-sml-prev-title'); a.removeAttribute('data-sml-model'); }
+  // Every model link with text outside model listings: green with a check when the performer is in Stash
+  // (by the model id in a saved URL, else by name). Listings get card badges from markModelCards instead.
+  function markModelLinks() { if (!performerMapCache || site.listing.test(location.pathname)) return; var links = document.querySelectorAll(site.modelLinkSel); for (var i = 0; i < links.length; i++) { var a = links[i]; if (a.closest('#' + PANEL_ID)) continue; var hit = performerForLink(a, a.getAttribute('href') || a.href || ''); var cur = a.getAttribute('data-sml-model'); if (cur && (!hit || cur !== String(hit.id))) unmarkModelLink(a); if (!hit || a.getAttribute('data-sml-model') || !(a.innerText || '').trim()) continue; a.setAttribute('data-sml-model', String(hit.id)); a.setAttribute('data-sml-prev-title', a.title || ''); a.title = 'In Stash: ' + hit.name + ' (Stash id ' + hit.id + ')'; a.style.color = '#22c55e'; a.style.fontWeight = '700'; var chk = document.createElement('span'); chk.setAttribute(MODEL_LINK_CHECK, '1'); chk.textContent = '\u2713 '; chk.style.cssText = 'color:#22c55e;font-weight:800;'; a.insertBefore(chk, a.firstChild); } }
+  function runListing(force) { if (!force && location.pathname === lastPath && performerMapCache) { try { markModelCards(performerMapCache); } catch (e) {} return; } lastPath = location.pathname; removePanel(); resetHeading(); performerFound = false; fetchPerformerMap().then(function (map) { markModelCards(map); }).catch(function () {}); }
   function findAnchor() { return site.anchorSel ? (q(site.anchorSel) || q(site.headingFallbackSel)) : null; }
   function removePanel() { var old = document.getElementById(PANEL_ID); if (old) old.remove(); }
   function stylePanel(el) { el.style.cssText = 'margin:10px 0;padding:10px 12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:10px;font-size:13px;line-height:1.55;max-width:680px;font-family:system-ui,sans-serif;'; }
@@ -237,9 +254,7 @@
   function renderLoading(anchor, name) {
     removePanel();
     resetHeading();
-    clearVideoMarks();
     performerFound = false;
-    sceneMapCache = null;
     performerTitleMapCache = null;
     performerTitleMapFor = null;
     var div = document.createElement('div');
@@ -260,7 +275,6 @@
     function line(text, color) { var p = document.createElement('div'); if (color) p.style.color = color; p.textContent = text; div.appendChild(p); return p; }
     if (state.error) {
       resetHeading();
-      clearVideoMarks();
       performerFound = false;
       line('Cannot reach Stash at ' + STASH_ORIGIN + ': ' + state.error, '#fca5a5').setAttribute('data-sml-keep', '1');
       var retry = document.createElement('button');
@@ -273,7 +287,6 @@
     }
     if (!state.exact) {
       resetHeading();
-      clearVideoMarks();
       performerFound = false;
       line('Model "' + state.name + '" NOT found in Stash (' + state.count + ' fuzzy hit(s)).', '#fcd34d').setAttribute('data-sml-keep', '1');
       if (state.candidates.length) line('Closest: ' + state.candidates.map(function (p) { return p.name + ' (id ' + p.id + ')'; }).join(', '), '#94a3b8');
@@ -336,7 +349,7 @@
     performerFound = true;
     vidLine.setAttribute('data-sml-video-count', '1');
     vidLine.setAttribute('data-sml-keep', '1');
-    Promise.all([fetchSceneMap(), fetchPerformerTitleMap(p.id)]).then(function (maps) { markVideos(maps[0] || {}, maps[1] || {}); updateVideoCount(); }).catch(function () { vidLine.textContent = 'Video check failed.'; });
+    Promise.all([ensureSceneMap(), fetchPerformerTitleMap(p.id)]).then(function (maps) { markVideos(maps[0] || {}, maps[1] || {}); updateVideoCount(); }).catch(function () { vidLine.textContent = 'Video check failed.'; });
   }
   // Recounted on every re-check too, because single-page apps often render the video cards after the panel.
   function updateVideoCount() { var vidLine = document.querySelector('#' + PANEL_ID + ' [data-sml-video-count]'); if (!vidLine) return; var urlMap = sceneMapCache || {}, titleMap = performerTitleMapCache; var cards = videoCards(); var total = 0, hit = 0; for (var k = 0; k < cards.length; k++) { var la = cards[k].querySelector(site.videoLinkSel); if (!la) continue; var mid = site.sceneKey(la.getAttribute('href') || la.href); if (!mid && !cardTitleForCard(cards[k])) continue; total++; if (matchSceneForCard(cards[k], urlMap, titleMap)) hit++; } vidLine.textContent = total ? ('Videos on this page in Stash: ' + hit + '/' + total) : 'No videos found on this page.'; vidLine.style.color = hit ? '#86efac' : '#94a3b8'; }
@@ -360,7 +373,7 @@
     });
   }
   function runDetail(force) {
-    if (!isDetailPage()) { removePanel(); resetHeading(); clearVideoMarks(); performerFound = false; sceneMapCache = null; performerTitleMapCache = null; performerTitleMapFor = null; return; }
+    if (!isDetailPage()) { removePanel(); resetHeading(); performerFound = false; performerTitleMapCache = null; performerTitleMapFor = null; return; }
     // A panel drawn without a name is redrawn once the page links the model by name.
     if (!force && pageKey() === lastPath && document.getElementById(PANEL_ID) && !(namelessPanel && paramModelId() && modelFromPageLinks(paramModelId()))) return;
     lastPath = pageKey();
@@ -397,8 +410,11 @@
       if (a3 || !site.anchorSel) render(a3, { name: label, pageUrl: pageUrl, error: e.message });
     });
   }
-  function run(force) { if (isDetailPage()) return runDetail(force); if (site.listing.test(location.pathname)) return runListing(force); removePanel(); resetHeading(); clearVideoMarks(); clearModelMarks(); performerFound = false; sceneMapCache = null; performerTitleMapCache = null; performerTitleMapFor = null; }
+  function run(force) { if (isDetailPage()) return runDetail(force); if (site.listing.test(location.pathname)) return runListing(force); removePanel(); resetHeading(); clearModelMarks(); performerFound = false; performerTitleMapCache = null; performerTitleMapFor = null; }
   var tries = 0;
   var boot = setInterval(function () { tries++; if (findAnchor() || !site.anchorSel || q(site.modelEntrySel)) { clearInterval(boot); run(true); } else if (tries > 40) clearInterval(boot); }, 500);
-  setInterval(function () { try { if (performerFound && (sceneMapCache || performerTitleMapCache)) { markVideos(sceneMapCache, performerTitleMapCache); updateVideoCount(); } } catch (e) {} try { if (performerMapCache && site.listing.test(location.pathname)) markModelCards(performerMapCache); } catch (e2) {} run(false); }, 2000);
+  // Every page: load both Stash maps once, then re-check marks every two seconds.
+  ensureSceneMap().catch(function () {});
+  fetchPerformerMap().catch(function () {});
+  setInterval(function () { ensureSceneMap().catch(function () {}); fetchPerformerMap().catch(function () {}); try { if (sceneMapCache) { markVideos(sceneMapCache, performerFound ? performerTitleMapCache : null); updateVideoCount(); } } catch (e) {} try { if (performerMapCache) { if (site.listing.test(location.pathname)) markModelCards(performerMapCache); else markModelLinks(); } } catch (e2) {} run(false); }, 2000);
 })();

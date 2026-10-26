@@ -110,6 +110,12 @@ async function connect(url) {
     await wait('__log.some(x=>x.startsWith("update:"))');
     assert.deepEqual(JSON.parse((await ev('__log.find(x=>x.startsWith("update:"))')).slice(7)), { id: '7', urls: ['https://app.reptyle.com/models/1'] });
 
+    // Any other Reptyle page: no panel, scenes marked by id only (the title match needs a model page).
+    await go('/movies/100');
+    await wait('document.querySelectorAll(".stash-model-link-video-badge").length===1');
+    assert.equal(await ev('!!document.getElementById("stash-model-link-panel")'), false);
+    assert.equal(await ev('document.querySelector(".stash-model-link-video-badge").getAttribute("data-sml-key")'), '50');
+
     // Detail page reached by alias.
     await go('/models/2');
     await wait(panel + '.includes("Found in Stash")');
@@ -187,10 +193,11 @@ async function connect(url) {
     await ev('__confirm=true; __log.length=0; [...document.querySelectorAll("#stash-model-link-panel button")].find(b=>b.textContent.startsWith("Add this URL")).click()');
     await wait('__log.some(x=>x.startsWith("update:"))');
     assert.ok(await ev('__log.some(x=>x.startsWith("update:") && x.endsWith(",\\"https://members.adulttime.com/en/pornstar/view/Kenzie-Reeves/49648\\"]}"))'));
-    // Unfiltered video listing: no model page.
+    // Unfiltered video listing: no model page, but scenes Stash holds are marked by id.
     await go('/en/videos/', 'members.adulttime.com');
-    await pause(600);
+    await wait('document.querySelectorAll(".stash-model-link-video-badge").length===1');
     assert.equal(await ev('!!document.getElementById("stash-model-link-panel")'), false);
+    assert.equal(await ev('document.querySelector(".stash-model-link-video-badge").getAttribute("data-sml-key")'), '60');
 
     // Brazzers model page: found by id in a saved URL, structural cards, heading shows the name.
     const badges = 'document.querySelectorAll(".stash-model-link-video-badge")';
@@ -221,10 +228,18 @@ async function connect(url) {
     await wait('__log.some(x=>x.startsWith("update:"))');
     assert.ok(await ev('__log.some(x=>x==="update:"+JSON.stringify({id:"300",urls:["https://site-ma.brazzers.com/model/65308/nia-nacci"]}))'));
 
-    // Plain scene listing: no model page, no panel.
+    // Plain scene listing: no model page, no panel, but every page marks what Stash has: scenes by id only
+    // (no title search across the collection) and model links by the model id in a saved performer URL.
     await go('/scenes', 'site-ma.brazzers.com');
-    await pause(600);
+    await wait('document.querySelectorAll(".stash-model-link-video-badge").length===1');
     assert.equal(await ev('!!document.getElementById("stash-model-link-panel")'), false);
+    assert.equal(await ev('document.querySelector(".stash-model-link-video-badge").getAttribute("data-sml-key")'), '70');
+    await wait('document.querySelectorAll("a[data-sml-model]").length===3');
+    assert.equal(await ev('[...document.querySelectorAll("a[data-sml-model]")].every(a=>a.getAttribute("data-sml-model")==="217" && a.textContent.startsWith("\\u2713 "))'), true);
+    // A reused card that now shows another scene loses its badge.
+    await ev('document.querySelectorAll("a[href^=\\"/scene/9001/\\"]").forEach(a=>a.setAttribute("href","/scene/9999/other"))');
+    await wait('document.querySelectorAll(".stash-model-link-video-badge").length===0');
+    assert.equal(await ev('document.querySelectorAll("[data-sml-video-green]").length'), 0);
 
     // Model listing: names from the URL, structural cards, + URL only where the URL is missing.
     await go('/models', 'site-ma.brazzers.com');
