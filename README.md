@@ -1,6 +1,8 @@
 # reptyle-stash-model-link
 
-Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.4.0**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.4.1**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+
+**v8.4.1**: because a performer can now come from a stored list, both add-URL buttons read the performer's current URLs from Stash right before the update and append to those (the update replaces the whole list), so URLs added elsewhere in the meantime are kept.
 
 **v8.4.0** keeps the two bulk Stash lists, all performers and each site's scenes, in Tampermonkey storage. That storage belongs to the script, not to a site, so a list fetched on one site is reused by every other site and tab (`localStorage` would be per site). A stored list is used at once on the next page; when it is older than 10 minutes it is fetched again in the background while the stored copy keeps serving, and one older than a day is ignored. Adding a URL to a performer drops the stored performer list, so the next page fetches it fresh. The per-model lookups (performer by id or name, the performer's scenes for the title match) still ask Stash live. Something you change in Stash directly shows up within 10 minutes.
 
@@ -25,7 +27,7 @@ Original v7 behavior: also mark in-Stash video titles green with a checkmark.
 
 1. In Chrome/Edge, turn on **Allow User Scripts** for Tampermonkey (extension details → right-click the icon → Manage extension), otherwise no userscript runs.
 2. Open the [raw userscript on `master`](https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js); Tampermonkey shows its install page, click **Install** (or **Update** over an earlier version).
-3. Reload the Reptyle tab. When Tampermonkey asks about cross-origin requests, review the `@connect` entries below and choose **Always allow**.
+3. Reload the tab of the supported site. When Tampermonkey asks about cross-origin requests, review the `@connect` entries below and choose **Always allow**.
 
 Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*`, `https://members.adulttime.com/*` and `https://site-ma.brazzers.com/*` (top frame only).
 

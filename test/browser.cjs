@@ -27,10 +27,13 @@ const PERFS = [
   { id: '300', name: 'Nia Nacci', alias_list: [], urls: [] },
   { id: '125', name: 'Demi Hawks', alias_list: [], urls: Array.from({ length: 45 }, (_, i) => 'https://example.com/profile/demi-hawks-' + i) }
 ];
+// URLs added in Stash since the lists were read: a write must keep them.
+const LIVE_URLS = { '300': ['https://example.com/nia-live'] };
 window.GM_xmlhttpRequest = function (o) {
   const body = JSON.parse(o.data), q = body.query, v = body.variables || {};
   let data;
   if (/performerUpdate/.test(q)) { __log.push('update:' + JSON.stringify(v.input)); data = { performerUpdate: { id: v.input.id, urls: v.input.urls } }; }
+  else if (/findPerformer\\(id:/.test(q)) { __log.push('live:' + v.id); const p = PERFS.find(x => x.id === v.id); data = { findPerformer: p ? { urls: (LIVE_URLS[p.id] || []).concat(p.urls) } : null }; }
   else if (/performer_filter:\\{url/.test(q)) { __log.push('byurl:' + v.u); const ps = PERFS.filter(p => p.urls.some(u => u.includes(v.u))); data = { findPerformers: { performers: JSON.parse(JSON.stringify(ps)) } }; }
   else if (/findPerformers\\(filter:\\{q:/.test(q)) { const n = v.q.toLowerCase(); const ps = PERFS.filter(p => [p.name].concat(p.alias_list).some(x => x.toLowerCase().includes(n))); data = { findPerformers: { count: ps.length, performers: JSON.parse(JSON.stringify(ps)) } }; }
   else if (/findPerformers/.test(q)) { __log.push('perfs:' + v.p); data = { findPerformers: { count: PERFS.length, performers: JSON.parse(JSON.stringify(PERFS)) } }; }
@@ -255,7 +258,7 @@ async function connect(url) {
     assert.match(await ev(panel), /This page URL is NOT saved/);
     await ev('__confirm=true; __log.length=0; [...document.querySelectorAll("#stash-model-link-panel button")].find(b=>b.textContent.startsWith("Add this URL")).click()');
     await wait('__log.some(x=>x.startsWith("update:"))');
-    assert.ok(await ev('__log.some(x=>x==="update:"+JSON.stringify({id:"300",urls:["https://site-ma.brazzers.com/model/65308/nia-nacci"]}))'));
+    assert.ok(await ev('__log.some(x=>x==="update:"+JSON.stringify({id:"300",urls:["https://example.com/nia-live","https://site-ma.brazzers.com/model/65308/nia-nacci"]}))'));
     await stored('cache:v1:performers', v => v === null);
 
     // Plain scene listing: no model page, no panel, but every page marks what Stash has: scenes by id only

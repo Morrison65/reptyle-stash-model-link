@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reptyle Stash Model Link
 // @namespace    local.reptyle-stash-model-link
-// @version      8.4.0
+// @version      8.4.1
 // @description  Shows the Stash performer match on model pages of supported sites (one adapter per site, Reptyle first), with an add-URL button and Stash link, and marks models and videos already in Stash on listings.
 // @match        https://app.reptyle.com/*
 // @match        https://members.adulttime.com/*
@@ -20,7 +20,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '8.4.0';
+  const VERSION = '8.4.1';
   // One adapter per site or network: everything page-specific lives here, the core below is generic.
   // hosts: page hosts the adapter runs on (each needs an @match). detail/listing: model page paths.
   // anchorSel: the panel goes after it; empty means a floating panel. nameFromUrl (optional): model name from a path, tried first.
@@ -206,12 +206,19 @@
       });
     });
   }
-  // The only write the script makes; always asks first. It drops the stored performer list, so the next page refetches it.
+  // The only write the script makes; always asks first. The update replaces all URLs and p may come from a stored list,
+  // so it appends to the performer's current URLs. It drops the stored performer list, so the next page refetches it.
   function addPerformerUrl(p, url) {
     if (!confirm('Add this URL to "' + p.name + '" (Stash id ' + p.id + ')?\n\n' + url)) return Promise.resolve(null);
-    var next = (p.urls || []).slice();
-    next.push(url);
-    return gql('mutation($input:PerformerUpdateInput!){ performerUpdate(input:$input){ id urls } }', { input: { id: p.id, urls: next } }).then(function () { stashStore.set('performers', null); var k = site.modelKey(url); if (k && performerKeyMapCache) performerKeyMapCache[k] = p; return next; });
+    return gql('query($id:ID!){ findPerformer(id:$id){ urls } }', { id: p.id }).then(function (data) {
+      if (!data || !data.findPerformer) throw new Error('performer ' + p.id + ' is no longer in Stash');
+      stashStore.set('performers', null);
+      var cur = data.findPerformer.urls || [];
+      function done(urls) { var k = site.modelKey(url); if (k && performerKeyMapCache) performerKeyMapCache[k] = p; return urls; }
+      if (cur.some(function (u) { return normUrl(u).toLowerCase() === normUrl(url).toLowerCase(); })) return done(cur.slice());
+      var next = cur.concat([url]);
+      return gql('mutation($input:PerformerUpdateInput!){ performerUpdate(input:$input){ id urls } }', { input: { id: p.id, urls: next } }).then(function () { return done(next); });
+    });
   }
   function resetHeading() { var b = document.getElementById(HEADING_BADGE_ID); if (!b) return; var h = b.parentElement; b.remove(); if (!h) return; if (headingOrigColor) h.style.color = headingOrigColor; else h.style.color = ''; h.style.fontWeight = ''; }
   // Only a heading that shows this model's name is coloured, so a generic page heading stays untouched.
