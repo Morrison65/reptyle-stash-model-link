@@ -26,7 +26,7 @@ test('every GM API used is granted and every grant is used', () => {
     for (const api of meta.grant) assert.match(code, new RegExp('\\b' + api + '\\b'), api + ' is granted but unused');
 });
 
-const { SITES, siteFor, normUrl, normTitle, normName, extractMovieId, extractModelId, extractGammaSceneId, extractGammaActorId, gammaNameFromUrl, ayloNameFromUrl, modelIdFromParam, modelNameFromParam } = require('../reptyle-stash-model-link.user.js');
+const { SITES, siteFor, normUrl, normTitle, normName, extractMovieId, extractModelId, extractGammaSceneId, extractGammaActorId, gammaNameFromUrl, ayloNameFromUrl, modelIdFromParam, modelNameFromParam, cachedList } = require('../reptyle-stash-model-link.user.js');
 
 test('updates come from the raw file on master', () => {
     const raw = 'https://raw.githubusercontent.com/Morrison65/' + pkg.name + '/master/' + pkg.name + '.user.js';
@@ -147,4 +147,53 @@ test('model names compare without case, accents or punctuation', () => {
     assert.equal(normName('  Jane DOE '), 'jane doe');
     assert.equal(normName('Anna-Belle'), normName('anna belle'));
     assert.equal(normName('Sof\u00eda Lee'), 'sofia lee');
+});
+// Shared Stash lists: a fake store stands in for Tampermonkey storage.
+function memStore(entries = {}) { return { entries, set: (n, e) => { entries[n] = e; }, get: n => entries[n] ?? null }; }
+function counted(items, fail) { const f = () => { f.calls++; return fail ? Promise.reject(new Error('down')) : Promise.resolve(items); }; f.calls = 0; return f; }
+test('a fresh stored list is used without asking Stash', async () => {
+    const store = memStore({ p: { at: Date.now() - 1000, items: ['stored'] } }), fetchFn = counted(['fresh']), used = [];
+    const get = cachedList(store, 'p', fetchFn, items => used.push(items));
+    await get(); await get();
+    assert.equal(fetchFn.calls, 0);
+    assert.deepEqual(used, [['stored']]);
+});
+test('a missing list is fetched once and stored for the next page', async () => {
+    const store = memStore(), fetchFn = counted(['fresh']), used = [];
+    const get = cachedList(store, 'p', fetchFn, items => used.push(items));
+    await Promise.all([get(), get()]);
+    assert.equal(fetchFn.calls, 1);
+    assert.deepEqual(used, [['fresh']]);
+    assert.deepEqual(store.entries.p.items, ['fresh']);
+    assert.ok(Date.now() - store.entries.p.at < 1000);
+    const next = counted(['other']);
+    await cachedList(store, 'p', next, () => {})();
+    assert.equal(next.calls, 0);
+});
+test('a stale list serves at once while it is refetched', async () => {
+    const store = memStore({ p: { at: Date.now() - 700000, items: ['stale'] } }), fetchFn = counted(['fresh']), used = [];
+    const get = cachedList(store, 'p', fetchFn, items => used.push(items));
+    const pending = get();
+    assert.deepEqual(used, [['stale']]);
+    await pending;
+    await new Promise(r => setTimeout(r, 0));
+    assert.equal(fetchFn.calls, 1);
+    assert.deepEqual(used, [['stale'], ['fresh']]);
+    assert.deepEqual(store.entries.p.items, ['fresh']);
+});
+test('dropped, malformed or day-old lists are refetched', async () => {
+    for (const entry of [null, { at: Date.now(), items: 'x' }, { items: [] }, { at: Date.now() - 90000000, items: ['old'] }]) {
+        const fetchFn = counted(['fresh']), used = [];
+        await cachedList(memStore({ p: entry }), 'p', fetchFn, items => used.push(items))();
+        assert.equal(fetchFn.calls, 1);
+        assert.deepEqual(used, [['fresh']]);
+    }
+});
+test('a failed fetch is not stored and not retried at once', async () => {
+    const store = memStore(), fetchFn = counted(null, true);
+    const get = cachedList(store, 'p', fetchFn, () => assert.fail('nothing to use'));
+    await assert.rejects(get(), /down/);
+    await assert.rejects(get(), /down/);
+    assert.equal(fetchFn.calls, 1);
+    assert.equal(store.entries.p, undefined);
 });

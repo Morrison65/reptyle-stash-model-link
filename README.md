@@ -1,6 +1,10 @@
 # reptyle-stash-model-link
 
-Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.2.1**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+Tampermonkey userscript for **desktop Chrome** that links model pages of supported sites to the matching performer in your local [Stash](https://stashapp.cc) (`http://localhost:9999`). Version **8.4.0**. Supported so far: Reptyle (`app.reptyle.com`), Adult Time members (`members.adulttime.com`) and Brazzers members (`site-ma.brazzers.com`); more sites follow as adapters.
+
+**v8.4.0** keeps the two bulk Stash lists, all performers and each site's scenes, in Tampermonkey storage. That storage belongs to the script, not to a site, so a list fetched on one site is reused by every other site and tab (`localStorage` would be per site). A stored list is used at once on the next page; when it is older than 10 minutes it is fetched again in the background while the stored copy keeps serving, and one older than a day is ignored. Adding a URL to a performer drops the stored performer list, so the next page fetches it fresh. The per-model lookups (performer by id or name, the performer's scenes for the title match) still ask Stash live. Something you change in Stash directly shows up within 10 minutes.
+
+**v8.3.0** marks what Stash has on every page of a supported site, not only on model pages: video cards by the site's scene id and model links by the model id in a saved performer URL (`performerUrlRe` limits which saved URLs count per site), and drops marks from cards the single-page app reuses for other scenes.
 
 **v8.2.0** adds the Brazzers adapter and model-filtered pages:
 - **Brazzers** model pages (`/model/<id>/<slug>`): the performer is found first by the model id in a saved Stash URL (`brazzers.com/pornstar/<id>/` or `brazzers.com/model/<id>/`), then by the name from the URL. Videos match by the Aylo scene id, which members links (`/scene/<id>/`) share with the tour URLs Stash holds (`brazzers.com/video/<id>/`). Brazzers class names are build hashes, so cards are found by structure: the largest element around a link that holds only that one scene or model.
@@ -23,7 +27,7 @@ Original v7 behavior: also mark in-Stash video titles green with a checkmark.
 2. Open the [raw userscript on `master`](https://raw.githubusercontent.com/Morrison65/reptyle-stash-model-link/master/reptyle-stash-model-link.user.js); Tampermonkey shows its install page, click **Install** (or **Update** over an earlier version).
 3. Reload the Reptyle tab. When Tampermonkey asks about cross-origin requests, review the `@connect` entries below and choose **Always allow**.
 
-Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*` and `https://members.adulttime.com/*` (top frame only).
+Runs only on the hosts of its adapters, currently `https://app.reptyle.com/*`, `https://members.adulttime.com/*` and `https://site-ma.brazzers.com/*` (top frame only).
 
 ## Updates
 
@@ -34,6 +38,7 @@ Since **v8.0.1** the script carries `@updateURL`/`@downloadURL` pointing at the 
 - **Model page** (`/models/<id>`): a panel under the name. If a performer with exactly that name exists in Stash the name turns green with a checkbox and the panel shows **View in Stash**; if the page URL is not saved on the performer, **Add this URL in Stash** appends it after a confirmation (a `performerUpdate` mutation, the only write the script makes). Names match the performer's name or one of its aliases. Otherwise it lists the closest fuzzy matches. A **Retry** button appears when Stash is unreachable.
 - **Videos on a model page** (Reptyle: `.movies-thumb-entry`): titles already in Stash (matched by the site's scene id in a stored URL, or by normalised title among the performer's scenes) are marked green with a check and an "in Stash" badge, and the panel counts them.
 - **Model listing** (Reptyle: `/models`): every model that exists in Stash gets an `IN STASH` badge, and a `+ URL` button (with confirmation) when its page URL is not saved yet.
+- **Every other page** of a supported site: video cards and model links already in Stash are marked too (by id only).
 - Re-checks every two seconds, so in-app navigation and infinite scrolling are followed.
 
 ## Adding a site
@@ -42,12 +47,12 @@ Add an object to `SITES` and an `@match https://<host>/*` per host (a test check
 ## Permissions
 
 - `@connect localhost`: GraphQL calls to `http://localhost:9999/graphql`. Tampermonkey asks once; choose **Always allow**. If your Stash runs elsewhere, change `STASH_ORIGIN` and add a matching `@connect`.
-- `@grant GM_xmlhttpRequest` for Stash, `GM_getValue`/`GM_setValue` to remember model pages (name and URL per site id). Tampermonkey may ask to confirm the new grants once when it updates to 8.2.0.
+- `@grant GM_xmlhttpRequest` for Stash, `GM_getValue`/`GM_setValue` to remember model pages (name and URL per site id), the panel fold state, and the shared Stash lists (`cache:v1:performers`, `cache:v1:scenes:<url part>`: ids, names, aliases, titles and URLs from your Stash, kept only in Tampermonkey's local extension storage). To clear the lists, delete those keys in the script's **Storage** tab in Tampermonkey (shown in the advanced config mode); they are refetched on the next page. Tampermonkey may ask to confirm the new grants once when it updates to 8.2.0.
 
 ## Checks
 
 ```bash
-npm run check      # lint (Tampermonkey 5.5.1 rule set) + unit tests
+npm run check      # lint (Tampermonkey 5.5.1 rule set) + unit tests + browser test + version bump check
 ```
 
-`npm run lint` needs desktop Chrome with Tampermonkey 5.5.1 installed (set `TAMPERMONKEY_EXTENSION_DIR` to override); `npm run check:ci` uses the pinned stand-in after `npm ci --prefix tools/lint-ci`. Unit tests cover metadata/grant consistency, adapter completeness and host selection, the `@match`/adapter agreement and the pure helpers. `npm run test:browser` (part of `npm run check`, not of CI) runs every adapter in headless Chrome on stub pages with stubbed Tampermonkey APIs: panel, matches by id and title, confirm before writes, filtered model pages, late-rendering cards and the 2-second re-check. It needs desktop Chrome (`CHROME_PATH` overrides the path). Stub pages are not the live sites: real selectors are only confirmed where a page capture or report was available.
+`npm run lint` needs desktop Chrome with Tampermonkey 5.5.1 installed (set `TAMPERMONKEY_EXTENSION_DIR` to override); `npm run check:ci` uses the pinned stand-in after `npm ci --prefix tools/lint-ci`. Unit tests cover metadata/grant consistency, adapter completeness and host selection, the `@match`/adapter agreement and the pure helpers. `npm run test:browser` (part of `npm run check`, not of CI) runs every adapter in headless Chrome on stub pages with stubbed Tampermonkey APIs: panel, matches by id and title, confirm before writes, filtered model pages, late-rendering cards, the 2-second re-check, and the shared Stash lists (GM storage in the test is one store for all hosts, as in Tampermonkey: lists are reused across sites, dropped after a write and refetched when stale). It needs desktop Chrome (`CHROME_PATH` overrides the path). Stub pages are not the live sites: real selectors are only confirmed where a page capture or report was available.
